@@ -6,9 +6,9 @@ defmodule Membrane.Template.Mixfile do
 
   def project do
     [
-      app: :membrane_template_plugin,
+      app: :membrane_turn_plugin,
       version: @version,
-      elixir: "~> 1.13",
+      elixir: "~> 1.10",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -41,7 +41,7 @@ defmodule Membrane.Template.Mixfile do
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6.1", only: :dev, runtime: false},
-      {:stun, path: "/Users/feliks/costam/turny/stun"}
+      {:fake_turn, path: "/Users/feliks/costam/turny/stun"}
     ]
   end
 

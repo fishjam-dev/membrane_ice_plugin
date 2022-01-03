@@ -50,7 +50,7 @@ defmodule Membrane.TURN.Endpoint do
   """
   use Membrane.Filter
 
-  alias Membrane.TURN.Utils
+  alias Membrane.TURN.{Utils, Handshake}
   alias Membrane.Funnel
 
   require Membrane.Logger
@@ -59,12 +59,19 @@ defmodule Membrane.TURN.Endpoint do
   @stream_id 1
   @fake_candidate_addr {{127, 0, 0, 1}, 41847}
 
-  @type integrated_turn_options_t() :: %{
-          use_integrated_turn: binary(),
-          ip: :inet.ip4_address(),
+  @typedoc """
+  Options defining the behavior of TURN.Endpoint in relation to integrated TURN servers.
+  - `:ip` - IP, where integrated TURN server will open its sockets
+  - `:mock_ip` - IP, that will be put part of XOR-RELAYED-ADDRESS attribute in Allocation Succes message.
+  Might be, but doesn't have to be equal to `:ip`
+  - `:ports_range` range, where integrated TURN server will try to open ports
+  """
+  @type integrated_turn_options_t() :: [
+          use_integrated_turn: boolean(),
+          ip: :inet.ip4_address() | nil,
           mock_ip: :inet.ip4_address() | nil,
           ports_range: {:inet.port_number(), :inet.port_number()} | nil
-        }
+        ]
 
   def_options handshake_module: [
                 spec: module(),
@@ -122,8 +129,8 @@ defmodule Membrane.TURN.Endpoint do
   @impl true
   def handle_prepared_to_playing(ctx, state) do
     {hsk_init_data, actions, state} = add_stream(ctx, state)
-    ice_ufrag = TurnUtils.generate_ice_ufrag()
-    ice_pwd = TurnUtils.generate_ice_pwd()
+    ice_ufrag = Utils.generate_ice_ufrag()
+    ice_pwd = Utils.generate_ice_pwd()
 
     state = Map.put(state, :local_ice_pwd, ice_pwd)
 
@@ -202,7 +209,7 @@ defmodule Membrane.TURN.Endpoint do
   def handle_other(:gather_candidates, _ctx, state) do
     msg = {
       :new_candidate_full,
-      TurnUtils.generate_fake_ice_candidate(@fake_candidate_addr)
+      Utils.generate_fake_ice_candidate(@fake_candidate_addr)
     }
 
     {{:ok, notify: msg}, state}
@@ -217,8 +224,8 @@ defmodule Membrane.TURN.Endpoint do
 
   @impl true
   def handle_other(:restart_stream, _ctx, state) do
-    ice_ufrag = TurnUtils.generate_ice_ufrag()
-    ice_pwd = TurnUtils.generate_ice_pwd()
+    ice_ufrag = Utils.generate_ice_ufrag()
+    ice_pwd = Utils.generate_ice_pwd()
 
     state = Map.put(state, :local_ice_pwd, ice_pwd)
     credentials = "#{ice_ufrag} #{ice_pwd}"
@@ -276,8 +283,8 @@ defmodule Membrane.TURN.Endpoint do
   def handle_other(:maybe_send_binding_indication, _ctx, state) do
     with %{selected_alloc: alloc_pid} when is_pid(alloc_pid) <- state,
          %{^alloc_pid => %{magic: magic}} when magic != nil <- state.turn_allocs do
-      tr_id = TurnUtils.generate_transaction_id()
-      TurnUtils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
+      tr_id = Utils.generate_transaction_id()
+      Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
     end
 
     Process.send_after(self(), :maybe_send_binding_indication, 1000)
@@ -325,7 +332,7 @@ defmodule Membrane.TURN.Endpoint do
   def handle_shutdown(_reason, state) do
     Enum.each(
       state.integrated_turn_servers,
-      fn {_pid, turn} -> TurnUtils.stop_integrated_turn(turn) end
+      fn {_pid, turn} -> Utils.stop_integrated_turn(turn) end
     )
 
     :ok
@@ -366,10 +373,10 @@ defmodule Membrane.TURN.Endpoint do
 
     [:udp, :tcp]
     |> Enum.map(fn transport ->
-      secret = TurnUtils.generate_secret()
+      secret = Utils.generate_secret()
 
       {:ok, port, pid} =
-        TurnUtils.start_integrated_turn(
+        Utils.start_integrated_turn(
           secret,
           client_port_range: client_port_range,
           alloc_port_range: alloc_port_range,
@@ -397,7 +404,7 @@ defmodule Membrane.TURN.Endpoint do
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     alloc = state.turn_allocs[alloc_pid]
 
-    TurnUtils.send_binding_success(
+    Utils.send_binding_success(
       alloc_pid,
       state.local_ice_pwd,
       attrs.magic,
@@ -408,10 +415,10 @@ defmodule Membrane.TURN.Endpoint do
     alloc = %{alloc | passed_check_from_browser: true, magic: attrs.magic}
 
     if not alloc.passed_check_from_sfu do
-      trid = TurnUtils.generate_transaction_id()
+      trid = Utils.generate_transaction_id()
       new_username = String.split(attrs.username, ":") |> Enum.reverse() |> Enum.join(":")
 
-      TurnUtils.send_binding_request(
+      Utils.send_binding_request(
         alloc_pid,
         state.remote_ice_pwd,
         attrs.magic,
