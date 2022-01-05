@@ -52,6 +52,7 @@ defmodule Membrane.TURN.Endpoint do
 
   alias Membrane.TURN.{Utils, Handshake}
   alias Membrane.Funnel
+  alias __MODULE__.Allocation
 
   require Membrane.Logger
 
@@ -62,12 +63,14 @@ defmodule Membrane.TURN.Endpoint do
   @typedoc """
   Options defining the behavior of TURN.Endpoint in relation to integrated TURN servers.
   - `:ip` - IP, where integrated TURN server will open its sockets
-  - `:mock_ip` - IP, that will be put part of XOR-RELAYED-ADDRESS attribute in Allocation Succes message.
-  Might be, but doesn't have to be equal to `:ip`
+  - `:mock_ip` - IP, that will be part of the allocation address contained in Allocation Succes
+  message. Because of the fact, that in integrated TURNS no data is relayed via allocation address,
+  there is no need to open socket there. There are some cases, where it is necessary, to tell
+  the browser, that we have opened allocation on different IP, that we have TURN listening on,
+  eg. we are using Docker container
   - `:ports_range` range, where integrated TURN server will try to open ports
   """
   @type integrated_turn_options_t() :: [
-          use_integrated_turn: boolean(),
           ip: :inet.ip4_address() | nil,
           mock_ip: :inet.ip4_address() | nil,
           ports_range: {:inet.port_number(), :inet.port_number()} | nil
@@ -86,7 +89,6 @@ defmodule Membrane.TURN.Endpoint do
               ],
               integrated_turn_options: [
                 spec: [integrated_turn_options_t()],
-                default: %{use_integrated_turn: false},
                 description: "Integrated TURN Options"
               ]
 
@@ -101,6 +103,20 @@ defmodule Membrane.TURN.Endpoint do
     caps: :any,
     mode: :push
 
+  defmodule Allocation do
+    @enforce_keys [:pid]
+
+    # field `:in_nominated_pair` says, whenether or not, specific allocation
+    # is a browser ICE candidate, that belongs to nominated ICE candidates pair
+    defstruct @enforce_keys ++
+                [
+                  magic: nil,
+                  in_nominated_pair: false,
+                  passed_check_from_browser: false,
+                  passed_check_from_sfu: false
+                ]
+  end
+
   @impl true
   def handle_init(options) do
     %__MODULE__{
@@ -110,7 +126,6 @@ defmodule Membrane.TURN.Endpoint do
     } = options
 
     integrated_turn_servers = start_integrated_turn_servers(integrated_turn_options, self())
-    # IO.inspect(integrated_turn_options)
 
     {{:ok, notify: {:integrated_turn_servers, integrated_turn_servers}},
      %{
@@ -166,11 +181,11 @@ defmodule Membrane.TURN.Endpoint do
   def handle_process(
         Pad.ref(:input, @component_id) = pad,
         %Membrane.Buffer{payload: payload},
-        %{playback_state: :playing},
+        _ctx,
         %{selected_alloc: alloc} = state
       )
       when is_pid(alloc) do
-    send(alloc, {:ice_payload, payload})
+    Utils.send_ice_payload(alloc, payload)
     {{:ok, demand: pad}, state}
   end
 
@@ -178,16 +193,10 @@ defmodule Membrane.TURN.Endpoint do
   def handle_process(
         Pad.ref(:input, @component_id),
         %Membrane.Buffer{},
-        %{playback_state: :playing},
+        _ctx,
         state
       ) do
-    {{:ok, notify: {:could_not_send_payload, :libnice_not_running}}, state}
-  end
-
-  @impl true
-  def handle_process(_pad, _buffer, %{playback_state: playback_state}, state) do
-    Membrane.Logger.debug("Can't send message in playback state: #{playback_state}. Ignoring.")
-    {:ok, state}
+    {{:ok, notify: {:could_not_send_payload, :no_selected_ice_candidates_pair}}, state}
   end
 
   @impl true
@@ -202,9 +211,10 @@ defmodule Membrane.TURN.Endpoint do
   end
 
   @impl true
-  def handle_event(_pad, _event, _ctx, state) do
-    {:ok, state}
-  end
+  def handle_event(_pad, _event, _ctx, state), do: {:ok, state}
+
+  @impl true
+  def handle_caps(_pad, _caps, _ctx, state), do: {:ok, state}
 
   @impl true
   def handle_other(:gather_candidates, _ctx, state) do
@@ -238,12 +248,6 @@ defmodule Membrane.TURN.Endpoint do
     {:ok, state}
   end
 
-  # @impl true
-  # def handle_other({:component_state_ready, @stream_id, @component_id}, ctx, state) do
-  #   {state, actions} = handle_component_state_ready(ctx, state)
-  #   {{:ok, actions}, state}
-  # end
-
   @impl true
   def handle_other({:hsk_finished, @component_id, hsk_data}, ctx, state) do
     {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
@@ -251,21 +255,13 @@ defmodule Membrane.TURN.Endpoint do
   end
 
   @impl true
-  def handle_other({:creating_alloc, alloc_pid}, _ctx, state) do
-    alloc = %{
-      pid: alloc_pid,
-      magic: nil,
-      in_nominated_pair: false,
-      passed_check_from_browser: false,
-      passed_check_from_sfu: false
-    }
-
-    state = put_in(state, [:turn_allocs, alloc_pid], alloc)
+  def handle_other({:alloc_created, alloc_pid}, _ctx, state) do
+    state = put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
     {:ok, state}
   end
 
   @impl true
-  def handle_other({:deleting_alloc, alloc_pid}, _ctx, state) do
+  def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
     {:ok, state}
   end
@@ -413,7 +409,7 @@ defmodule Membrane.TURN.Endpoint do
       attrs.username
     )
 
-    alloc = %{alloc | passed_check_from_browser: true, magic: attrs.magic}
+    alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
 
     if not alloc.passed_check_from_sfu do
       trid = Utils.generate_transaction_id()
@@ -431,7 +427,7 @@ defmodule Membrane.TURN.Endpoint do
 
     alloc =
       if attrs.use_candidate,
-        do: %{alloc | in_nominated_pair: true},
+        do: %Allocation{alloc | in_nominated_pair: true},
         else: alloc
 
     state = put_in(state, [:turn_allocs, alloc_pid], alloc)
@@ -440,7 +436,7 @@ defmodule Membrane.TURN.Endpoint do
 
   defp do_handle_connectivity_check(%{class: :response}, alloc_pid, ctx, state) do
     alloc = state.turn_allocs[alloc_pid]
-    alloc = %{alloc | passed_check_from_sfu: true}
+    alloc = %Allocation{alloc | passed_check_from_sfu: true}
     maybe_select_allocation(alloc, ctx, state)
   end
 
@@ -449,7 +445,7 @@ defmodule Membrane.TURN.Endpoint do
   end
 
   defp maybe_select_allocation(
-         %{
+         %Allocation{
            passed_check_from_browser: true,
            passed_check_from_sfu: true,
            in_nominated_pair: true
@@ -473,51 +469,41 @@ defmodule Membrane.TURN.Endpoint do
     Membrane.Logger.debug("Component #{@component_id} READY")
 
     {hsk_state, hsk_status, _hsk_data} = state.handshake
+    state = %{state | component_connected?: true}
 
-    if state.component_connected? and hsk_status != :finished do
-      {state, [notify: {:component_state_failed, @stream_id, @component_id}]}
-    else
-      state = %{state | component_connected?: true}
+    {state, actions} =
+      if hsk_status == :finished do
+        {state, [notify: {:connection_ready, @stream_id, @component_id}]}
+      else
+        Membrane.Logger.debug("Checking for cached handshake packets")
 
-      {state, actions} =
-        if hsk_status == :finished do
-          {state, [notify: {:connection_ready, @stream_id, @component_id}]}
+        if state.cached_hsk_packets == nil do
+          Membrane.Logger.debug("Nothing to be sent for component: #{@component_id}")
         else
-          Membrane.Logger.debug("Checking for cached handshake packets")
-
-          if state.cached_hsk_packets == nil do
-            Membrane.Logger.debug("Nothing to be sent for component: #{@component_id}")
-          else
-            Membrane.Logger.debug(
-              "Sending cached handshake packets for component: #{@component_id}"
-            )
-
-            send_payload(state.cached_hsk_packets, state)
-          end
-
-          handle_connection_ready(
-            state.hsk_module.connection_ready(hsk_state),
-            state
+          Membrane.Logger.debug(
+            "Sending cached handshake packets for component: #{@component_id}"
           )
 
-          {%{state | cached_hsk_packets: nil}, []}
+          Utils.send_ice_payload(state.selected_alloc, state.cached_hsk_packets)
         end
 
-      {state, demand_actions} = handle_component_state_ready(ctx, state)
-      actions = demand_actions ++ actions
-      {state, actions}
-    end
-  end
+        handle_connection_ready(
+          state.hsk_module.connection_ready(hsk_state),
+          state
+        )
 
-  defp send_payload(payload, %{selected_alloc: alloc})
-       when is_pid(alloc) do
-    send(alloc, {:ice_payload, payload})
+        {%{state | cached_hsk_packets: nil}, []}
+      end
+
+    {state, demand_actions} = handle_component_state_ready(ctx, state)
+    actions = demand_actions ++ actions
+    {state, actions}
   end
 
   defp handle_connection_ready(:ok, _state), do: :ok
 
   defp handle_connection_ready({:ok, packets}, state) do
-    send_payload(packets, state)
+    Utils.send_ice_payload(state.selected_alloc, packets)
     :ok
   end
 
@@ -563,7 +549,7 @@ defmodule Membrane.TURN.Endpoint do
 
   defp handle_process_result({:handshake_packets, packets}, _ctx, state) do
     if state.component_connected? do
-      send_payload(packets, state)
+      Utils.send_ice_payload(state.selected_alloc, packets)
       {:ok, state}
     else
       # if connection is not ready yet cache data
@@ -577,7 +563,7 @@ defmodule Membrane.TURN.Endpoint do
     do: handle_end_of_hsk(hsk_data, ctx, state)
 
   defp handle_process_result({:handshake_finished, hsk_data, packets}, ctx, state) do
-    send_payload(packets, state)
+    Utils.send_ice_payload(state.selected_alloc, packets)
     handle_end_of_hsk(hsk_data, ctx, state)
   end
 
