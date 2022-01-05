@@ -57,7 +57,7 @@ defmodule Membrane.TURN.Endpoint do
 
   @component_id 1
   @stream_id 1
-  @fake_candidate_addr {{127, 0, 0, 1}, 41847}
+  @fake_candidate_port 41847
 
   @typedoc """
   Options defining the behavior of TURN.Endpoint in relation to integrated TURN servers.
@@ -110,6 +110,7 @@ defmodule Membrane.TURN.Endpoint do
     } = options
 
     integrated_turn_servers = start_integrated_turn_servers(integrated_turn_options, self())
+    # IO.inspect(integrated_turn_options)
 
     {{:ok, notify: {:integrated_turn_servers, integrated_turn_servers}},
      %{
@@ -209,7 +210,7 @@ defmodule Membrane.TURN.Endpoint do
   def handle_other(:gather_candidates, _ctx, state) do
     msg = {
       :new_candidate_full,
-      Utils.generate_fake_ice_candidate(@fake_candidate_addr)
+      Utils.generate_fake_ice_candidate({state.fake_candidate_ip, @fake_candidate_port})
     }
 
     {{:ok, notify: msg}, state}
@@ -237,11 +238,11 @@ defmodule Membrane.TURN.Endpoint do
     {:ok, state}
   end
 
-  @impl true
-  def handle_other({:component_state_ready, @stream_id, @component_id}, ctx, state) do
-    {state, actions} = handle_component_state_ready(ctx, state)
-    {{:ok, actions}, state}
-  end
+  # @impl true
+  # def handle_other({:component_state_ready, @stream_id, @component_id}, ctx, state) do
+  #   {state, actions} = handle_component_state_ready(ctx, state)
+  #   {{:ok, actions}, state}
+  # end
 
   @impl true
   def handle_other({:hsk_finished, @component_id, hsk_data}, ctx, state) do
@@ -384,7 +385,7 @@ defmodule Membrane.TURN.Endpoint do
           mock_ip: mock_ip,
           transport: transport,
           parent: connector,
-          fake_candidate_addr: @fake_candidate_addr,
+          fake_candidate_addr: {mock_ip, @fake_candidate_port},
           elixir_ice_impl: true
         )
 
