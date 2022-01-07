@@ -1,30 +1,30 @@
-defmodule Membrane.TURN.Endpoint do
+defmodule Membrane.ICE.Endpoint do
   @moduledoc """
   Filter used for establishing ICE connection, sending and receiving messages.
 
   ### Architecture and pad semantic
   Both input and output pads are dynamic ones.
-  One instance of TURN Endpoint is responsible for handling only one ICE stream with only one component.
+  One instance of ICE Endpoint is responsible for handling only one ICE stream with only one component.
 
   ### Linking using output pad
-  To receive messages after establishing ICE connection you have to link TURN Endpoint to your element
+  To receive messages after establishing ICE connection you have to link ICE Endpoint to your element
   via `Pad.ref(:output, 1)`. `1` is an id of component from which your element will receive messages - because
   there will be always at most one component, id of it will be equal `1`.
 
-  **Important**: you can link to TURN Endpoint using its output pad in any moment you want but if you don't
+  **Important**: you can link to ICE Endpoint using its output pad in any moment you want but if you don't
   want to miss any messages do it before playing your pipeline.
 
   **Important**: you can't link multiple elements using the same `component_id`. Messages from
   one component can be conveyed only to one element.
 
   ### Linking using input pad
-  To send messages after establishing ICE connection you have to link to TURN Endpoint via
+  To send messages after establishing ICE connection you have to link to ICE Endpoint via
   `Pad.ref(:input, 1)`. `1` is an id of component which will be used to send
   messages via net. To send data from multiple elements via the same component you have to
   use [membrane_funnel_plugin](https://github.com/membraneframework/membrane_funnel_plugin).
 
   ### Messages API
-  You can send following messages to TURN Endpoint:
+  You can send following messages to ICE Endpoint:
 
   - `:gather_candidates`
 
@@ -45,12 +45,12 @@ defmodule Membrane.TURN.Endpoint do
   - `{:component_state_failed, @stream_id, @component_id}`
 
   ### Sending and receiving messages
-  To send or receive messages just link to TURN Endpoint using relevant pads.
+  To send or receive messages just link to ICE Endpoint using relevant pads.
   As soon as connection is established your element will receive demands and incoming messages.
   """
   use Membrane.Filter
 
-  alias Membrane.TURN.{Utils, Handshake}
+  alias Membrane.ICE.{Utils, Handshake}
   alias Membrane.Funnel
   alias __MODULE__.Allocation
 
@@ -61,7 +61,7 @@ defmodule Membrane.TURN.Endpoint do
   @fake_candidate_port 41847
 
   @typedoc """
-  Options defining the behavior of TURN.Endpoint in relation to integrated TURN servers.
+  Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
   - `:ip` - IP, where integrated TURN server will open its sockets
   - `:mock_ip` - IP, that will be part of the allocation address contained in Allocation Succes
   message. Because of the fact, that in integrated TURNS no data is relayed via allocation address,

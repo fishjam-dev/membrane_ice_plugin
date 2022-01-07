@@ -1,4 +1,4 @@
-defmodule Membrane.TURN.Handshake do
+defmodule Membrane.ICE.Handshake do
   @moduledoc """
   Behaviour that specifies functions that have to be implemented in order to perform handshake
   after establishing ICE connection.
@@ -26,7 +26,7 @@ defmodule Membrane.TURN.Handshake do
   `init_data` - any data that will be fired as a notification to pipeline. Notification
   will be of type `t:init_notification/0`
   `state` - state that will be passed to other functions
-  `id` - id assigned by TURN plugin. It corresponds to component_id. Has to be used for
+  `id` - id assigned by ICE plugin. It corresponds to component_id. Has to be used for
   retransmitting packets
 
   Returning by a peer `:finished` will mark handshake as finished.
@@ -46,7 +46,7 @@ defmodule Membrane.TURN.Handshake do
   Called each time remote data arrives.
 
   If there is a need to retransmit some data send message `{:retransmit, id, data}`.
-  `id` is id assigned by TURN in `init/3` function.
+  `id` is id assigned by ICE in `init/3` function.
   """
   @callback process(data :: binary(), state :: state()) ::
               :ok

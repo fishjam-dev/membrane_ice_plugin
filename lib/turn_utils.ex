@@ -1,4 +1,4 @@
-defmodule Membrane.TURN.Utils do
+defmodule Membrane.ICE.Utils do
   @moduledoc false
 
   @numbers_and_letters Enum.concat([?0..?9, ?a..?z, ?A..?Z])

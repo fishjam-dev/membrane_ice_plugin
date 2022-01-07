@@ -1,6 +1,6 @@
-defmodule Membrane.TURN.Handshake.Event do
+defmodule Membrane.ICE.Handshake.Event do
   @moduledoc """
-  Event sent by TURN.Endpoint on input and output pads after successful handshake.
+  Event sent by ICE.Endpoint on input and output pads after successful handshake.
   """
   @derive Membrane.EventProtocol
 
