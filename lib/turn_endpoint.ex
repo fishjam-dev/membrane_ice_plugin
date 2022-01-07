@@ -256,12 +256,14 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_other({:alloc_created, alloc_pid}, _ctx, state) do
+    Membrane.Logger.debug("Creating allocation with pid #{alloc_pid}")
     state = put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
     {:ok, state}
   end
 
   @impl true
   def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
+    Membrane.Logger.debug("Deleting allocation with pid #{Membrane.Logger.debug()}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
     {:ok, state}
   end
@@ -282,6 +284,10 @@ defmodule Membrane.ICE.Endpoint do
          %{^alloc_pid => %{magic: magic}} when magic != nil <- state.turn_allocs do
       tr_id = Utils.generate_transaction_id()
       Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
+
+      Membrane.Logger.debug(
+        "Sending Binding Indication with params: #{[magic: attrs.magic, transaction_id: tr_id]}"
+      )
     end
 
     Process.send_after(self(), :maybe_send_binding_indication, 1000)
@@ -368,37 +374,50 @@ defmodule Membrane.ICE.Endpoint do
         do: {medium, max_port},
         else: {medium + 1, max_port}
 
-    [:udp, :tcp]
-    |> Enum.map(fn transport ->
-      secret = Utils.generate_secret()
+    turns =
+      [:udp, :tcp]
+      |> Enum.map(fn transport ->
+        secret = Utils.generate_secret()
 
-      {:ok, port, pid} =
-        Utils.start_integrated_turn(
-          secret,
-          client_port_range: client_port_range,
-          alloc_port_range: alloc_port_range,
-          ip: ip,
-          mock_ip: mock_ip,
-          transport: transport,
-          parent: connector,
-          fake_candidate_addr: {mock_ip, @fake_candidate_port},
-          elixir_ice_impl: true
-        )
+        {:ok, port, pid} =
+          Utils.start_integrated_turn(
+            secret,
+            client_port_range: client_port_range,
+            alloc_port_range: alloc_port_range,
+            ip: ip,
+            mock_ip: mock_ip,
+            transport: transport,
+            parent: connector,
+            fake_candidate_addr: {mock_ip, @fake_candidate_port},
+            elixir_ice_impl: true
+          )
 
-      %{
-        relay_type: transport,
-        secret: secret,
-        server_addr: ip,
-        mocked_server_addr: mock_ip,
-        server_port: port,
-        pid: pid
-      }
+        %{
+          relay_type: transport,
+          secret: secret,
+          server_addr: ip,
+          mocked_server_addr: mock_ip,
+          server_port: port,
+          pid: pid
+        }
+      end)
+
+    Enum.each(turns, fn turn ->
+      addr = Tuple.to_list(turn.server_addr) |> Enum.join(".")
+
+      Membrane.Logger.debug(
+        "Starting #{turn.relay_type} TURN Server at #{addr}:#{turn.server_port}"
+      )
     end)
+
+    turns
   end
 
   defp start_integrated_turn_servers(_options, _connector), do: []
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
+    log_debug_connectivity_check(attrs)
+
     alloc = state.turn_allocs[alloc_pid]
 
     Utils.send_binding_success(
@@ -408,6 +427,10 @@ defmodule Membrane.ICE.Endpoint do
       attrs.trid,
       attrs.username
     )
+
+    [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
+    |> then(&"Sending Binding Success with params: #{&1}")
+    |> Membrane.Logger.debug()
 
     alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
 
@@ -423,6 +446,16 @@ defmodule Membrane.ICE.Endpoint do
         new_username,
         attrs.priority
       )
+
+      [
+        magic: attrs.magic,
+        transaction_id: trid,
+        username: new_username,
+        priority: attrs.priority,
+        ice_controlled: true
+      ]
+      |> then(&"Sending Binding Request with params: #{&1}")
+      |> Membrane.Logger.debug()
     end
 
     alloc =
@@ -434,7 +467,9 @@ defmodule Membrane.ICE.Endpoint do
     maybe_select_allocation(alloc, ctx, state)
   end
 
-  defp do_handle_connectivity_check(%{class: :response}, alloc_pid, ctx, state) do
+  defp do_handle_connectivity_check(%{class: :response} = attrs, alloc_pid, ctx, state) do
+    log_debug_connectivity_check(ttrs)
+
     alloc = state.turn_allocs[alloc_pid]
     alloc = %Allocation{alloc | passed_check_from_sfu: true}
     maybe_select_allocation(alloc, ctx, state)
@@ -442,6 +477,27 @@ defmodule Membrane.ICE.Endpoint do
 
   defp do_handle_connectivity_check(%{class: :error}, _, _, state) do
     {state, []}
+  end
+
+  defp log_debug_connectivity_check(attrs) do
+    request_type =
+      case attrs.class do
+        :response -> "Success"
+        :request -> "Request"
+        :error -> "Error"
+      end
+
+    [
+      magic: attrs.magic,
+      transaction_id: attrs.trid,
+      username: attrs.username,
+      use_candidate: attrs.use_candidate,
+      ice_controlled: attrs.ice_controlled,
+      ice_controlled: attrs.ice_controlled,
+      ice_controlling: attrs.ice_controlling
+    ]
+    |> then(&"Received Binding #{request_type} with params: #{&1}")
+    |> Membrane.Logger.debug()
   end
 
   defp maybe_select_allocation(
