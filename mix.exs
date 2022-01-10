@@ -39,6 +39,7 @@ defmodule Membrane.ICE.Mixfile do
       {:membrane_core, "~> 0.8.1"},
       {:bunch, "~> 1.3.0"},
       {:fake_turn, github: "membraneframework/fake_turn", branch: "removing-libnice"},
+      {:ex_dtls, "~> 0.8.0"},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6.1", only: :dev, runtime: false}

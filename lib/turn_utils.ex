@@ -95,6 +95,10 @@ defmodule Membrane.ICE.Utils do
   @spec generate_ice_pwd() :: binary()
   def generate_ice_pwd(), do: random_readable_binary(22)
 
+  @spec is_dtls_hsk_packet(binary()) :: boolean()
+  def is_dtls_hsk_packet(<<head, _rest::binary()>> = packet),
+    do: head in 20..63 and byte_size(packet) >= 13
+
   defp send_connectivity_check(attrs, alloc_pid, pwd, magic, trid) do
     attrs =
       [

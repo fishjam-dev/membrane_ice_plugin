@@ -76,16 +76,11 @@ defmodule Membrane.ICE.Endpoint do
           ports_range: {:inet.port_number(), :inet.port_number()} | nil
         ]
 
-  def_options handshake_module: [
-                spec: module(),
-                default: Handshake.Default,
-                description: "Module implementing Handshake behaviour"
-              ],
-              handshake_opts: [
+  def_options handshake_opts: [
                 spec: keyword(),
                 default: [],
                 description:
-                  "Options for handshake module. They will be passed to init function of hsk_module"
+                  "Options for `ExDTLS` module. They will be passed to `&ExDTLS.start_link/1`"
               ],
               integrated_turn_options: [
                 spec: [integrated_turn_options_t()],
@@ -121,7 +116,6 @@ defmodule Membrane.ICE.Endpoint do
   def handle_init(options) do
     %__MODULE__{
       integrated_turn_options: integrated_turn_options,
-      handshake_module: hsk_module,
       handshake_opts: hsk_opts
     } = options
 
@@ -133,7 +127,6 @@ defmodule Membrane.ICE.Endpoint do
        turn_allocs: %{},
        fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
        selected_alloc: nil,
-       hsk_module: hsk_module,
        hsk_opts: hsk_opts,
        component_connected?: false,
        cached_hsk_packets: nil,
@@ -144,18 +137,22 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_prepared_to_playing(ctx, state) do
-    {hsk_init_data, actions, state} = add_stream(ctx, state)
+    {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
+    {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(dtls)
+    hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
     ice_ufrag = Utils.generate_ice_ufrag()
     ice_pwd = Utils.generate_ice_pwd()
 
-    state = Map.put(state, :local_ice_pwd, ice_pwd)
+    state =
+      Map.merge(state, %{
+        local_ice_pwd: ice_pwd,
+        handshake: {hsk_state, :in_progress, nil}
+      })
 
-    actions =
-      actions ++
-        [
-          notify: {:handshake_init_data, @component_id, hsk_init_data},
-          notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
-        ]
+    actions = [
+      notify: {:handshake_init_data, @component_id, fingerprint},
+      notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+    ]
 
     {{:ok, actions}, state}
   end
@@ -286,7 +283,7 @@ defmodule Membrane.ICE.Endpoint do
       Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
 
       Membrane.Logger.debug(
-        "Sending Binding Indication with params: #{[magic: attrs.magic, transaction_id: tr_id]}"
+        "Sending Binding Indication with params: #{[magic: magic, transaction_id: tr_id]}"
       )
     end
 
@@ -298,8 +295,8 @@ defmodule Membrane.ICE.Endpoint do
   def handle_other({:ice_payload, payload}, ctx, state) do
     {hsk_state, _hsk_status, _hsk_data} = state.handshake
 
-    if state.hsk_module.is_hsk_packet(payload, hsk_state) do
-      state.hsk_module.process(payload, hsk_state)
+    if Utils.is_dtls_hsk_packet(payload) do
+      ExDTLS.process(hsk_state.dtls, payload)
       |> handle_process_result(ctx, state)
     else
       out_pad = Pad.ref(:output, @component_id)
@@ -468,7 +465,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp do_handle_connectivity_check(%{class: :response} = attrs, alloc_pid, ctx, state) do
-    log_debug_connectivity_check(ttrs)
+    log_debug_connectivity_check(attrs)
 
     alloc = state.turn_allocs[alloc_pid]
     alloc = %Allocation{alloc | passed_check_from_sfu: true}
@@ -543,10 +540,14 @@ defmodule Membrane.ICE.Endpoint do
           Utils.send_ice_payload(state.selected_alloc, state.cached_hsk_packets)
         end
 
-        handle_connection_ready(
-          state.hsk_module.connection_ready(hsk_state),
-          state
-        )
+        case hsk_state do
+          %{client_mode: false} ->
+            :ok
+
+          %{dtls: dtls} ->
+            {:ok, packets} = ExDTLS.do_handshake(dtls)
+            Utils.send_ice_payload(state.selected_alloc, packets)
+        end
 
         {%{state | cached_hsk_packets: nil}, []}
       end
@@ -556,45 +557,7 @@ defmodule Membrane.ICE.Endpoint do
     {state, actions}
   end
 
-  defp handle_connection_ready(:ok, _state), do: :ok
-
-  defp handle_connection_ready({:ok, packets}, state) do
-    Utils.send_ice_payload(state.selected_alloc, packets)
-    :ok
-  end
-
-  defp add_stream(ctx, state) do
-    %{
-      hsk_module: hsk_module,
-      hsk_opts: hsk_opts
-    } = state
-
-    hsk_init_result = hsk_module.init(1, self(), hsk_opts)
-
-    {hsk_init_data, handshake} =
-      case hsk_init_result do
-        {:ok, init_data, hsk_state} ->
-          {init_data, {hsk_state, :in_progress, nil}}
-
-        {:finished, init_data} ->
-          {init_data, {nil, :finished, nil}}
-      end
-
-    {state, actions} =
-      hsk_init_result
-      |> case do
-        {:ok, _init_data, _state} ->
-          {state, []}
-
-        {:finished, _init_data} ->
-          handle_handshake_finished(nil, ctx, state)
-      end
-
-    state = Map.put(state, :handshake, handshake)
-    {hsk_init_data, actions, state}
-  end
-
-  defp handle_process_result(:ok, _ctx, state) do
+  defp handle_process_result(:handshake_want_read, _ctx, state) do
     {:ok, state}
   end
 
