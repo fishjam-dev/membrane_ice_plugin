@@ -446,8 +446,6 @@ defmodule Membrane.ICE.Endpoint do
     turns
   end
 
-  defp start_integrated_turn_servers(_options, _connector), do: []
-
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
