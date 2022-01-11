@@ -2,7 +2,7 @@ defmodule Membrane.ICE.Mixfile do
   use Mix.Project
 
   @version "0.1.0"
-  @github_url "https://github.com/membraneframework/membrane_turn_plugin"
+  @github_url "https://github.com/membraneframework/membrane_ice_plugin"
 
   def project do
     [
