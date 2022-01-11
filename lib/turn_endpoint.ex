@@ -76,7 +76,12 @@ defmodule Membrane.ICE.Endpoint do
           ports_range: {:inet.port_number(), :inet.port_number()} | nil
         ]
 
-  def_options handshake_opts: [
+  def_options dtls?: [
+                spec: boolean(),
+                default: true,
+                description: "`true`, if using DTLS Handshake, `false` otherwise"
+              ],
+              handshake_opts: [
                 spec: keyword(),
                 default: [],
                 description:
@@ -116,6 +121,7 @@ defmodule Membrane.ICE.Endpoint do
   def handle_init(options) do
     %__MODULE__{
       integrated_turn_options: integrated_turn_options,
+      dtls?: dtls?,
       handshake_opts: hsk_opts
     } = options
 
@@ -127,16 +133,17 @@ defmodule Membrane.ICE.Endpoint do
        turn_allocs: %{},
        fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
        selected_alloc: nil,
+       dtls?: dtls?,
        hsk_opts: hsk_opts,
        component_connected?: false,
        cached_hsk_packets: nil,
        component_ready?: false,
-       handshake_finished?: false
+       handshake_finished?: not dtls?
      }}
   end
 
   @impl true
-  def handle_prepared_to_playing(ctx, state) do
+  def handle_prepared_to_playing(_ctx, %{dtls?: true} = state) do
     {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
     {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(dtls)
     hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
@@ -146,11 +153,25 @@ defmodule Membrane.ICE.Endpoint do
     state =
       Map.merge(state, %{
         local_ice_pwd: ice_pwd,
-        handshake: {hsk_state, :in_progress, nil}
+        handshake: %{state: hsk_state, status: :in_progress, data: nil}
       })
 
     actions = [
       notify: {:handshake_init_data, @component_id, fingerprint},
+      notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+    ]
+
+    {{:ok, actions}, state}
+  end
+
+  @impl true
+  def handle_prepared_to_playing(_ctx, state) do
+    ice_ufrag = Utils.generate_ice_ufrag()
+    ice_pwd = Utils.generate_ice_pwd()
+    state = Map.put(state, :local_ice_pwd, ice_pwd)
+
+    actions = [
+      notify: {:handshake_init_data, @component_id, nil},
       notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
     ]
 
@@ -164,15 +185,28 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_pad_added(Pad.ref(:output, @component_id) = pad, _ctx, state) do
-    if state.handshake_finished? do
-      {_hsk_state, _hsk_status, hsk_data} = state.handshake
-      event = %Handshake.Event{handshake_data: hsk_data}
-      {{:ok, event: {pad, event}}, state}
-    else
-      {:ok, state}
-    end
+  def handle_pad_added(
+        Pad.ref(:output, @component_id) = pad,
+        _ctx,
+        %{dtls?: false} = state
+      ) do
+    event = %Handshake.Event{handshake_data: nil}
+    {{:ok, event: {pad, event}}, state}
   end
+
+  @impl true
+  def handle_pad_added(
+        Pad.ref(:output, @component_id) = pad,
+        _ctx,
+        %{handshake_finished?: true} = state
+      ) do
+    event = %Handshake.Event{handshake_data: state.handshake.data}
+    {{:ok, event: {pad, event}}, state}
+  end
+
+  @impl true
+  def handle_pad_added(Pad.ref(:output, @component_id), _ctx, state),
+    do: {:ok, state}
 
   @impl true
   def handle_process(
@@ -198,12 +232,16 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_event(Pad.ref(:input, @component_id) = pad, %Funnel.NewInputEvent{}, _ctx, state) do
-    if state.handshake_finished? do
-      {_hsk_state, _hsk_status, hsk_data} = state.handshake
-      event = {pad, %Handshake.Event{handshake_data: hsk_data}}
-      {{:ok, event: event}, state}
-    else
-      {:ok, state}
+    cond do
+      not state.dtls? ->
+        {{:ok, event: {pad, %Handshake.Event{handshake_data: nil}}}, state}
+
+      state.handshake_finished? ->
+        event = {pad, %Handshake.Event{handshake_data: state.handshake.data}}
+        {{:ok, event: event}, state}
+
+      true ->
+        {:ok, state}
     end
   end
 
@@ -253,14 +291,14 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_other({:alloc_created, alloc_pid}, _ctx, state) do
-    Membrane.Logger.debug("Creating allocation with pid #{alloc_pid}")
+    Membrane.Logger.debug("Creating allocation with pid #{inspect(alloc_pid)}")
     state = put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
     {:ok, state}
   end
 
   @impl true
   def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
-    Membrane.Logger.debug("Deleting allocation with pid #{Membrane.Logger.debug()}")
+    Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
     {:ok, state}
   end
@@ -283,7 +321,7 @@ defmodule Membrane.ICE.Endpoint do
       Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
 
       Membrane.Logger.debug(
-        "Sending Binding Indication with params: #{[magic: magic, transaction_id: tr_id]}"
+        "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
       )
     end
 
@@ -293,10 +331,8 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_other({:ice_payload, payload}, ctx, state) do
-    {hsk_state, _hsk_status, _hsk_data} = state.handshake
-
-    if Utils.is_dtls_hsk_packet(payload) do
-      ExDTLS.process(hsk_state.dtls, payload)
+    if state.dtls? and Utils.is_dtls_hsk_packet(payload) do
+      ExDTLS.process(state.handshake.state.dtls, payload)
       |> handle_process_result(ctx, state)
     else
       out_pad = Pad.ref(:output, @component_id)
@@ -403,7 +439,7 @@ defmodule Membrane.ICE.Endpoint do
       addr = Tuple.to_list(turn.server_addr) |> Enum.join(".")
 
       Membrane.Logger.debug(
-        "Starting #{turn.relay_type} TURN Server at #{addr}:#{turn.server_port}"
+        "Starting #{turn.relay_type} TURN Server at #{inspect(addr)}:#{turn.server_port}"
       )
     end)
 
@@ -426,7 +462,7 @@ defmodule Membrane.ICE.Endpoint do
     )
 
     [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
-    |> then(&"Sending Binding Success with params: #{&1}")
+    |> then(&"Sending Binding Success with params: #{inspect(&1)}")
     |> Membrane.Logger.debug()
 
     alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
@@ -451,7 +487,7 @@ defmodule Membrane.ICE.Endpoint do
         priority: attrs.priority,
         ice_controlled: true
       ]
-      |> then(&"Sending Binding Request with params: #{&1}")
+      |> then(&"Sending Binding Request with params: #{inspect(&1)}")
       |> Membrane.Logger.debug()
     end
 
@@ -469,10 +505,13 @@ defmodule Membrane.ICE.Endpoint do
 
     alloc = state.turn_allocs[alloc_pid]
     alloc = %Allocation{alloc | passed_check_from_sfu: true}
+    state = put_in(state, [:turn_allocs, alloc_pid], alloc)
     maybe_select_allocation(alloc, ctx, state)
   end
 
-  defp do_handle_connectivity_check(%{class: :error}, _, _, state) do
+  defp do_handle_connectivity_check(%{class: :error} = attrs, _, _, state) do
+    log_debug_connectivity_check(attrs)
+
     {state, []}
   end
 
@@ -484,16 +523,9 @@ defmodule Membrane.ICE.Endpoint do
         :error -> "Error"
       end
 
-    [
-      magic: attrs.magic,
-      transaction_id: attrs.trid,
-      username: attrs.username,
-      use_candidate: attrs.use_candidate,
-      ice_controlled: attrs.ice_controlled,
-      ice_controlled: attrs.ice_controlled,
-      ice_controlling: attrs.ice_controlling
-    ]
-    |> then(&"Received Binding #{request_type} with params: #{&1}")
+    Map.delete(attrs, :class)
+    |> Map.to_list()
+    |> then(&"Received Binding #{request_type} with params: #{inspect(&1)}")
     |> Membrane.Logger.debug()
   end
 
@@ -521,11 +553,10 @@ defmodule Membrane.ICE.Endpoint do
     state = Map.put(state, :selected_alloc, alloc_pid)
     Membrane.Logger.debug("Component #{@component_id} READY")
 
-    {hsk_state, hsk_status, _hsk_data} = state.handshake
     state = %{state | component_connected?: true}
 
     {state, actions} =
-      if hsk_status == :finished do
+      if state.dtls? == false or state.handshake.status == :finished do
         {state, [notify: {:connection_ready, @stream_id, @component_id}]}
       else
         Membrane.Logger.debug("Checking for cached handshake packets")
@@ -540,13 +571,11 @@ defmodule Membrane.ICE.Endpoint do
           Utils.send_ice_payload(state.selected_alloc, state.cached_hsk_packets)
         end
 
-        case hsk_state do
-          %{client_mode: false} ->
-            :ok
-
-          %{dtls: dtls} ->
-            {:ok, packets} = ExDTLS.do_handshake(dtls)
-            Utils.send_ice_payload(state.selected_alloc, packets)
+        with %{dtls?: true} <- state, %{dtls: dtls, client_mode: true} <- state.handshake.state do
+          {:ok, packets} = ExDTLS.do_handshake(dtls)
+          Utils.send_ice_payload(state.selected_alloc, packets)
+        else
+          _state -> :ok
         end
 
         {%{state | cached_hsk_packets: nil}, []}
@@ -592,8 +621,8 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp handle_end_of_hsk(hsk_data, ctx, state) do
-    {hsk_state, _hsk_status, _hsk_data} = state.handshake
-    state = Map.put(state, :handshake, {hsk_state, :finished, hsk_data})
+    hsk_state = state.handshake.state
+    state = Map.put(state, :handshake, %{state: hsk_state, status: :finished, data: hsk_data})
 
     {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
 
@@ -617,7 +646,7 @@ defmodule Membrane.ICE.Endpoint do
     # if something is linked, component is ready and handshake is done then send demands
     if Map.has_key?(ctx.pads, pad) and state.component_ready? and
          state.handshake_finished? do
-      {_hsk_state, _hsk_status, hsk_data} = state.handshake
+      hsk_data = if state.dtls?, do: state.handshake.data, else: nil
 
       [
         demand: pad,
