@@ -497,7 +497,7 @@ defmodule Membrane.ICE.Endpoint do
         else: alloc
 
     state = put_in(state, [:turn_allocs, alloc_pid], alloc)
-    maybe_select_allocation(alloc, ctx, state)
+    maybe_select_alloc(alloc, ctx, state)
   end
 
   defp do_handle_connectivity_check(%{class: :response} = attrs, alloc_pid, ctx, state) do
@@ -506,7 +506,7 @@ defmodule Membrane.ICE.Endpoint do
     alloc = state.turn_allocs[alloc_pid]
     alloc = %Allocation{alloc | passed_check_from_sfu: true}
     state = put_in(state, [:turn_allocs, alloc_pid], alloc)
-    maybe_select_allocation(alloc, ctx, state)
+    maybe_select_alloc(alloc, ctx, state)
   end
 
   defp do_handle_connectivity_check(%{class: :error} = attrs, _, _, state) do
@@ -529,7 +529,7 @@ defmodule Membrane.ICE.Endpoint do
     |> Membrane.Logger.debug()
   end
 
-  defp maybe_select_allocation(
+  defp maybe_select_alloc(
          %Allocation{
            passed_check_from_browser: true,
            passed_check_from_sfu: true,
@@ -545,7 +545,7 @@ defmodule Membrane.ICE.Endpoint do
     end
   end
 
-  defp maybe_select_allocation(_alloc, _ctx, state) do
+  defp maybe_select_alloc(_alloc, _ctx, state) do
     {state, []}
   end
 
