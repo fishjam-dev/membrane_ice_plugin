@@ -85,7 +85,7 @@ defmodule Membrane.ICE.Endpoint do
                 spec: keyword(),
                 default: [],
                 description:
-                  "Options for `ExDTLS` module. They will be passed to `&ExDTLS.start_link/1`"
+                  "Options for `ExDTLS` module. They will be passed to `ExDTLS.start_link/1`"
               ],
               integrated_turn_options: [
                 spec: [integrated_turn_options_t()],
@@ -137,8 +137,7 @@ defmodule Membrane.ICE.Endpoint do
        hsk_opts: hsk_opts,
        component_connected?: false,
        cached_hsk_packets: nil,
-       component_ready?: false,
-       handshake_finished?: not dtls?
+       component_ready?: false
      }}
   end
 
@@ -153,7 +152,7 @@ defmodule Membrane.ICE.Endpoint do
     state =
       Map.merge(state, %{
         local_ice_pwd: ice_pwd,
-        handshake: %{state: hsk_state, status: :in_progress, data: nil}
+        handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
       })
 
     actions = [
@@ -188,17 +187,7 @@ defmodule Membrane.ICE.Endpoint do
   def handle_pad_added(
         Pad.ref(:output, @component_id) = pad,
         _ctx,
-        %{dtls?: false} = state
-      ) do
-    event = %Handshake.Event{handshake_data: nil}
-    {{:ok, event: {pad, event}}, state}
-  end
-
-  @impl true
-  def handle_pad_added(
-        Pad.ref(:output, @component_id) = pad,
-        _ctx,
-        %{handshake_finished?: true} = state
+        %{dtls?: true, handshake: %{finished?: true}} = state
       ) do
     event = %Handshake.Event{handshake_data: state.handshake.data}
     {{:ok, event: {pad, event}}, state}
@@ -221,28 +210,14 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_process(
-        Pad.ref(:input, @component_id),
-        %Membrane.Buffer{},
+  def handle_event(
+        Pad.ref(:input, @component_id) = pad,
+        %Funnel.NewInputEvent{},
         _ctx,
-        state
+        %{dtls?: true, handshake: %{finished?: true}} = state
       ) do
-    {{:ok, notify: {:could_not_send_payload, :no_selected_ice_candidates_pair}}, state}
-  end
-
-  @impl true
-  def handle_event(Pad.ref(:input, @component_id) = pad, %Funnel.NewInputEvent{}, _ctx, state) do
-    cond do
-      not state.dtls? ->
-        {{:ok, event: {pad, %Handshake.Event{handshake_data: nil}}}, state}
-
-      state.handshake_finished? ->
-        event = {pad, %Handshake.Event{handshake_data: state.handshake.data}}
-        {{:ok, event: event}, state}
-
-      true ->
-        {:ok, state}
-    end
+    event = {pad, %Handshake.Event{handshake_data: state.handshake.data}}
+    {{:ok, event: event}, state}
   end
 
   @impl true
@@ -376,7 +351,8 @@ defmodule Membrane.ICE.Endpoint do
 
   defp handle_handshake_finished(hsk_data, ctx, state) do
     pad = Pad.ref(:output, @component_id)
-    state = %{state | handshake_finished?: true}
+
+    state = put_in(state, [:handshake, :finished?], true)
 
     actions =
       maybe_send_demands_actions(ctx, state) ++
@@ -643,7 +619,7 @@ defmodule Membrane.ICE.Endpoint do
     pad = Pad.ref(:input, @component_id)
     # if something is linked, component is ready and handshake is done then send demands
     if Map.has_key?(ctx.pads, pad) and state.component_ready? and
-         state.handshake_finished? do
+         state.handshake.finished? do
       hsk_data = if state.dtls?, do: state.handshake.data, else: nil
 
       [

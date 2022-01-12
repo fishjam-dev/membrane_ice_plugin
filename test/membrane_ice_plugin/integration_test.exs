@@ -63,13 +63,13 @@ defmodule Membrane.ICE.IntegrationTest do
     assert_receive(
       {:send_connectivity_check, stun_msg},
       1000,
-      "ICE.Endpoint hasn't respont to Binding Request"
+      "ICE.Endpoint hasn't responded to Binding Request"
     )
 
-    assert :response == Keyword.get(stun_msg, :class)
-    assert @magic == Keyword.get(stun_msg, :magic)
-    assert trid == Keyword.get(stun_msg, :trid)
-    assert username == Keyword.get(stun_msg, :username)
+    assert :response == stun_msg[:class]
+    assert @magic == stun_msg[:magic]
+    assert trid == stun_msg[:trid]
+    assert username == stun_msg[:username]
 
     username = "#{local_ice_ufrag}:#{@remote_ice_ufrag}"
 
@@ -79,13 +79,13 @@ defmodule Membrane.ICE.IntegrationTest do
       "ICE.Endpoint hasn't sent his own Binding Request"
     )
 
-    assert :request == Keyword.get(stun_msg, :class)
-    assert @magic == Keyword.get(stun_msg, :magic)
-    assert username == Keyword.get(stun_msg, :username)
-    assert Keyword.get(stun_msg, :ice_controlled)
+    assert :request == stun_msg[:class]
+    assert @magic == stun_msg[:magic]
+    assert username == stun_msg[:username]
+    assert stun_msg[:ice_controlled]
     assert @remote_ice_pwd == stun_msg[:ice_pwd]
 
-    trid = Keyword.get(stun_msg, :trid)
+    trid = stun_msg[:trid]
 
     binding_success = [
       class: :response,
@@ -117,13 +117,13 @@ defmodule Membrane.ICE.IntegrationTest do
     assert_receive(
       {:send_connectivity_check, stun_msg},
       1000,
-      "ICE.Endpoint hasn't respont to Binding Request"
+      "ICE.Endpoint hasn't responded to Binding Request"
     )
 
-    assert :response == Keyword.get(stun_msg, :class)
-    assert @magic == Keyword.get(stun_msg, :magic)
-    assert trid == Keyword.get(stun_msg, :trid)
-    assert username == Keyword.get(stun_msg, :username)
+    assert :response == stun_msg[:class]
+    assert @magic == stun_msg[:magic]
+    assert trid == stun_msg[:trid]
+    assert username == stun_msg[:username]
 
     assert_pipeline_notified(pid, :ice, {:connection_ready, @stream_id, @component_id})
   end
