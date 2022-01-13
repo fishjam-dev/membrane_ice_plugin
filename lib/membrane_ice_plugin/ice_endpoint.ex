@@ -42,11 +42,30 @@ defmodule Membrane.ICE.Endpoint do
 
   - `{:connection_ready, stream_id, component_id}`
 
-  - `{:component_state_failed, @stream_id, @component_id}`
+  - `{:component_state_failed, stream_id, component_id}`
 
   ### Sending and receiving messages
   To send or receive messages just link to ICE Endpoint using relevant pads.
   As soon as connection is established your element will receive demands and incoming messages.
+
+  ### Estabilishing a connection
+
+  #### Gathering ICE candidates
+  Data about integrated TURN servers set up by `Membrane.ICE.Endpoint`, passed to the parent via notification, should be
+  forwarded to the second peer, that will try to establish ICE connection with `Membrane.ICE.Endpoint`. The second peer
+  should have at least one allocation, in any of running integrated TURN servers (Firefox or Chrome will probably
+  have one allocation per TURN Server). Integrated TURN server sends message `{:alloc_created, alloc_pid}` after
+  creating a new allocation.
+
+  #### Performing ICE connectivity checks, selecting candidates pair
+  All ICE candidates from the second peer, that are not relay candidates corresponded to allocations on integrated TURN
+  servers, will be ignored. Every ICE connectivity check sent via integrated TURN server is captured, parsed, and
+  forwarded to ICE Endpoint in message `{:connectivity_check, attributes, allocation_pid}`. ICE Endpoint sends to
+  messages in form of `{:send_connectivity_check, attributes}` on `allocation_pid`, to send his connectivity checks
+  to the second peer. Role of ICE Endpoint can be ice-controlled, but cannot be ice-controlling. It is suggested, to use
+  `ice-lite` option in SDP message, but it is not necessary. ICE Endpoint supports both, aggressive and normal nomination.
+  After starting ICE or after every ICE restart, ICE Endpoint will pass all traffic and connectivity checks via
+  allocation, which corresponds to the last selected ICE candidates pair.
   """
   use Membrane.Filter
 
@@ -80,6 +99,11 @@ defmodule Membrane.ICE.Endpoint do
                 spec: boolean(),
                 default: true,
                 description: "`true`, if using DTLS Handshake, `false` otherwise"
+              ],
+              ice_lite?: [
+                spec: boolean(),
+                default: true,
+                description: "`true`, when ice-lite option was send in SDP message, `false` otherwise"
               ],
               handshake_opts: [
                 spec: keyword(),
@@ -120,12 +144,15 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_init(options) do
     %__MODULE__{
+      ice_lite?: ice_lite?,
       integrated_turn_options: integrated_turn_options,
       dtls?: dtls?,
       handshake_opts: hsk_opts
     } = options
 
     integrated_turn_servers = start_integrated_turn_servers(integrated_turn_options, self())
+
+    if ice_lite?, do: Process.send_after(self(), :maybe_send_binding_indication, 1000)
 
     {{:ok, notify: {:integrated_turn_servers, integrated_turn_servers}},
      %{
