@@ -87,12 +87,15 @@ defmodule Membrane.ICE.Endpoint do
   there is no need to open socket there. There are some cases, where it is necessary, to tell
   the browser, that we have opened allocation on different IP, that we have TURN listening on,
   eg. we are using Docker container
-  - `:ports_range` range, where integrated TURN server will try to open ports
+  - `:ports_range` - range, where integrated TURN server will try to open ports
+  - `:cert_file` - path to file with certificate and private key, used for estabilishing TLS connection
+  for TURN using TLS over TCP
   """
   @type integrated_turn_options_t() :: [
           ip: :inet.ip4_address() | nil,
           mock_ip: :inet.ip4_address() | nil,
-          ports_range: {:inet.port_number(), :inet.port_number()} | nil
+          ports_range: {:inet.port_number(), :inet.port_number()} | nil,
+          cert_file: binary() | nil
         ]
 
   def_options dtls?: [
@@ -103,7 +106,8 @@ defmodule Membrane.ICE.Endpoint do
               ice_lite?: [
                 spec: boolean(),
                 default: true,
-                description: "`true`, when ice-lite option was send in SDP message, `false` otherwise"
+                description:
+                  "`true`, when ice-lite option was send in SDP message, `false` otherwise"
               ],
               handshake_opts: [
                 spec: keyword(),
@@ -150,7 +154,7 @@ defmodule Membrane.ICE.Endpoint do
       handshake_opts: hsk_opts
     } = options
 
-    integrated_turn_servers = start_integrated_turn_servers(integrated_turn_options, self())
+    integrated_turn_servers = start_integrated_turn_servers(integrated_turn_options)
 
     if ice_lite?, do: Process.send_after(self(), :maybe_send_binding_indication, 1000)
 
@@ -390,14 +394,12 @@ defmodule Membrane.ICE.Endpoint do
     {state, actions}
   end
 
-  defp start_integrated_turn_servers(options, connector)
-       when is_list(options) and is_pid(connector) do
+  defp start_integrated_turn_servers(options) when is_list(options) do
     Map.new(options)
-    |> start_integrated_turn_servers(connector)
+    |> start_integrated_turn_servers()
   end
 
-  defp start_integrated_turn_servers(options, connector)
-       when is_pid(connector) do
+  defp start_integrated_turn_servers(options) do
     ip = options[:ip] || {0, 0, 0, 0}
     mock_ip = options[:mock_ip] || ip
     {min_port, max_port} = options[:ports_range] || {50_000, 59_999}
@@ -410,22 +412,33 @@ defmodule Membrane.ICE.Endpoint do
         do: {medium, max_port},
         else: {medium + 1, max_port}
 
+    turn_types =
+      if is_binary(options[:cert_file]),
+        do: [:udp, :tcp, :tls],
+        else: [:udp, :tcp]
+
     turns =
-      [:udp, :tcp]
+      turn_types
       |> Enum.map(fn transport ->
         secret = Utils.generate_secret()
 
         {:ok, port, pid} =
           Utils.start_integrated_turn(
             secret,
-            client_port_range: client_port_range,
-            alloc_port_range: alloc_port_range,
-            ip: ip,
-            mock_ip: mock_ip,
-            transport: transport,
-            parent: connector,
-            fake_candidate_addr: {mock_ip, @fake_candidate_port},
-            elixir_ice_impl: true
+            [
+              client_port_range: client_port_range,
+              alloc_port_range: alloc_port_range,
+              ip: ip,
+              mock_ip: mock_ip,
+              transport: transport,
+              parent: self(),
+              fake_candidate_addr: {mock_ip, @fake_candidate_port},
+              elixir_ice_impl: true
+            ] ++
+              if(transport == :tls,
+                do: [certfile: options[:cert_file]],
+                else: []
+              )
           )
 
         %{
