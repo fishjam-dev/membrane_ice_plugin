@@ -14,9 +14,6 @@ defmodule Membrane.ICE.Endpoint do
   **Important**: you can link to ICE Endpoint using its output pad in any moment you want but if you don't
   want to miss any messages do it before playing your pipeline.
 
-  **Important**: you can't link multiple elements using the same `component_id`. Messages from
-  one component can be conveyed only to one element.
-
   ### Linking using input pad
   To send messages after establishing ICE connection you have to link to ICE Endpoint via
   `Pad.ref(:input, 1)`. `1` is an id of component which will be used to send
@@ -103,7 +100,8 @@ defmodule Membrane.ICE.Endpoint do
               ice_lite?: [
                 spec: boolean(),
                 default: true,
-                description: "`true`, when ice-lite option was send in SDP message, `false` otherwise"
+                description:
+                  "`true`, when ice-lite option was send in SDP message, `false` otherwise"
               ],
               handshake_opts: [
                 spec: keyword(),
@@ -150,14 +148,12 @@ defmodule Membrane.ICE.Endpoint do
       handshake_opts: hsk_opts
     } = options
 
-    integrated_turn_servers = start_integrated_turn_servers(integrated_turn_options, self())
-
     if ice_lite?, do: Process.send_after(self(), :maybe_send_binding_indication, 1000)
 
-    {{:ok, notify: {:integrated_turn_servers, integrated_turn_servers}},
+    {:ok,
      %{
-       integrated_turn_servers: Map.new(integrated_turn_servers, &{&1.pid, &1}),
        turn_allocs: %{},
+       integrated_turn_options: integrated_turn_options,
        fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
        selected_alloc: nil,
        dtls?: dtls?,
@@ -175,14 +171,17 @@ defmodule Membrane.ICE.Endpoint do
     hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
     ice_ufrag = Utils.generate_ice_ufrag()
     ice_pwd = Utils.generate_ice_pwd()
+    integrated_turn_servers = start_integrated_turn_servers(state.integrated_turn_options)
 
     state =
       Map.merge(state, %{
+        integrated_turn_servers: Map.new(integrated_turn_servers, &{&1.pid, &1}),
         local_ice_pwd: ice_pwd,
         handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
       })
 
     actions = [
+      notify: {:integrated_turn_servers, integrated_turn_servers},
       notify: {:handshake_init_data, @component_id, fingerprint},
       notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
     ]
@@ -390,14 +389,12 @@ defmodule Membrane.ICE.Endpoint do
     {state, actions}
   end
 
-  defp start_integrated_turn_servers(options, connector)
-       when is_list(options) and is_pid(connector) do
+  defp start_integrated_turn_servers(options) when is_list(options) do
     Map.new(options)
-    |> start_integrated_turn_servers(connector)
+    |> start_integrated_turn_servers()
   end
 
-  defp start_integrated_turn_servers(options, connector)
-       when is_pid(connector) do
+  defp start_integrated_turn_servers(options) do
     ip = options[:ip] || {0, 0, 0, 0}
     mock_ip = options[:mock_ip] || ip
     {min_port, max_port} = options[:ports_range] || {50_000, 59_999}
@@ -423,7 +420,7 @@ defmodule Membrane.ICE.Endpoint do
             ip: ip,
             mock_ip: mock_ip,
             transport: transport,
-            parent: connector,
+            parent: self(),
             fake_candidate_addr: {mock_ip, @fake_candidate_port},
             elixir_ice_impl: true
           )
