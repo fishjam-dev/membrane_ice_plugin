@@ -66,7 +66,7 @@ defmodule Membrane.ICE.Endpoint do
   """
   use Membrane.Filter
 
-  alias Membrane.ICE.{Utils, Handshake}
+  alias Membrane.ICE.{Utils, Handshake, CandidatePortAssigner}
   alias Membrane.Funnel
   alias __MODULE__.Allocation
 
@@ -74,7 +74,6 @@ defmodule Membrane.ICE.Endpoint do
 
   @component_id 1
   @stream_id 1
-  @fake_candidate_port 41847
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
@@ -169,41 +168,56 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_prepared_to_playing(_ctx, %{dtls?: true} = state) do
-    {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
-    {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(dtls)
-    hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
-    ice_ufrag = Utils.generate_ice_ufrag()
-    ice_pwd = Utils.generate_ice_pwd()
-    integrated_turn_servers = start_integrated_turn_servers(state.integrated_turn_options)
+    with {:ok, candidate_port} <- CandidatePortAssigner.assign_candidate_port() do
+      {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
+      {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(dtls)
+      hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
+      ice_ufrag = Utils.generate_ice_ufrag()
+      ice_pwd = Utils.generate_ice_pwd()
 
-    state =
-      Map.merge(state, %{
-        integrated_turn_servers: Map.new(integrated_turn_servers, &{&1.pid, &1}),
-        local_ice_pwd: ice_pwd,
-        handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
-      })
+      integrated_turn_servers =
+        state.integrated_turn_options
+        |> start_integrated_turn_servers(candidate_port)
 
-    actions = [
-      notify: {:integrated_turn_servers, integrated_turn_servers},
-      notify: {:handshake_init_data, @component_id, fingerprint},
-      notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
-    ]
+      state =
+        Map.merge(state, %{
+          candidate_port: candidate_port,
+          integrated_turn_servers: Map.new(integrated_turn_servers, &{&1.pid, &1}),
+          local_ice_pwd: ice_pwd,
+          handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
+        })
 
-    {{:ok, actions}, state}
+      actions = [
+        notify: {:integrated_turn_servers, integrated_turn_servers},
+        notify: {:handshake_init_data, @component_id, fingerprint},
+        notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+      ]
+
+      {{:ok, actions}, state}
+    else
+      {:error, :no_free_candidate_port} = err ->
+        {err, state}
+    end
   end
 
   @impl true
   def handle_prepared_to_playing(_ctx, state) do
-    ice_ufrag = Utils.generate_ice_ufrag()
-    ice_pwd = Utils.generate_ice_pwd()
-    state = Map.put(state, :local_ice_pwd, ice_pwd)
+    with {:ok, candidate_port} <- CandidatePortAssigner.assign_candidate_port() do
+      ice_ufrag = Utils.generate_ice_ufrag()
+      ice_pwd = Utils.generate_ice_pwd()
+      state = Map.put(state, :local_ice_pwd, ice_pwd)
 
-    actions = [
-      notify: {:handshake_init_data, @component_id, nil},
-      notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
-    ]
+      actions = [
+        candidate_port: candidate_port,
+        notify: {:handshake_init_data, @component_id, nil},
+        notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+      ]
 
-    {{:ok, actions}, state}
+      {{:ok, actions}, state}
+    else
+      {:error, :no_free_candidate_port} = err ->
+        {err, state}
+    end
   end
 
   @impl true
@@ -259,7 +273,7 @@ defmodule Membrane.ICE.Endpoint do
   def handle_other(:gather_candidates, _ctx, state) do
     msg = {
       :new_candidate_full,
-      Utils.generate_fake_ice_candidate({state.fake_candidate_ip, @fake_candidate_port})
+      Utils.generate_fake_ice_candidate({state.fake_candidate_ip, state.candidate_port})
     }
 
     {{:ok, notify: msg}, state}
@@ -392,12 +406,7 @@ defmodule Membrane.ICE.Endpoint do
     {state, actions}
   end
 
-  defp start_integrated_turn_servers(options) when is_list(options) do
-    Map.new(options)
-    |> start_integrated_turn_servers()
-  end
-
-  defp start_integrated_turn_servers(options) do
+  defp start_integrated_turn_servers(options, candidate_port) do
     ip = options[:ip] || {0, 0, 0, 0}
     mock_ip = options[:mock_ip] || ip
     {min_port, max_port} = options[:ports_range] || {50_000, 59_999}
@@ -430,7 +439,7 @@ defmodule Membrane.ICE.Endpoint do
               mock_ip: mock_ip,
               transport: transport,
               parent: self(),
-              fake_candidate_addr: {mock_ip, @fake_candidate_port}
+              fake_candidate_addr: {mock_ip, candidate_port}
             ] ++
               if(transport == :tls,
                 do: [certfile: options[:cert_file]],
