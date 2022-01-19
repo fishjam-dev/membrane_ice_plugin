@@ -430,8 +430,7 @@ defmodule Membrane.ICE.Endpoint do
               mock_ip: mock_ip,
               transport: transport,
               parent: self(),
-              fake_candidate_addr: {mock_ip, @fake_candidate_port},
-              elixir_ice_impl: true
+              fake_candidate_addr: {mock_ip, @fake_candidate_port}
             ] ++
               if(transport == :tls,
                 do: [certfile: options[:cert_file]],
