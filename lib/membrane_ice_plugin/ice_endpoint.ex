@@ -153,7 +153,7 @@ defmodule Membrane.ICE.Endpoint do
 
     if ice_lite?, do: Process.send_after(self(), :maybe_send_binding_indication, 1000)
 
-    {{:ok},
+    {:ok,
      %{
        turn_allocs: %{},
        integrated_turn_options: integrated_turn_options,
