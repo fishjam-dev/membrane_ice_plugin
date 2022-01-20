@@ -1,14 +1,13 @@
 defmodule Membrane.ICE.CandidatePortAssigner do
   @moduledoc false
 
-  @registry_name Registry.ICE.CandidatePortAssigner
   @min_port 40000
   @max_port 65535
 
   @spec assign_candidate_port() :: {:ok, number()} | {:error, :no_free_candidate_port}
   def assign_candidate_port() do
-    # If the registry has been already started, the function call below will just return an error
-    Registry.start_link(keys: :unique, name: @registry_name)
+    if Process.whereis(__MODULE__) == nil,
+      do: Registry.start_link(keys: :unique, name: __MODULE__)
 
     random_port = :rand.uniform(@max_port - @min_port) + @min_port
     do_assign_candidate_port(random_port, 0)
@@ -17,14 +16,18 @@ defmodule Membrane.ICE.CandidatePortAssigner do
   @spec get_candidate_port_owner(number()) ::
           {:ok, pid()} | {:error, :candidate_port_owner_not_alive}
   def get_candidate_port_owner(port) do
-    case Registry.lookup(@registry_name, port) do
-      [{pid, nil}] -> {:ok, pid}
-      [] -> {:error, :candidate_owner_not_alive}
+    if Process.whereis(__MODULE__) == nil do
+      {:error, :candidate_owner_not_alive}
+    else
+      case Registry.lookup(__MODULE__, port) do
+        [{pid, nil}] -> {:ok, pid}
+        [] -> {:error, :candidate_owner_not_alive}
+      end
     end
   end
 
   defp do_assign_candidate_port(current_port, counter) do
-    case Registry.register(@registry_name, current_port, nil) do
+    case Registry.register(__MODULE__, current_port, nil) do
       {:ok, _pid} ->
         {:ok, current_port}
 
