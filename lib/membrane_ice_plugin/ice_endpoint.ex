@@ -177,7 +177,7 @@ defmodule Membrane.ICE.Endpoint do
 
       integrated_turn_servers =
         state.integrated_turn_options
-        |> start_integrated_turn_servers(candidate_port)
+        |> start_integrated_turn_servers()
 
       state =
         Map.merge(state, %{
@@ -308,13 +308,6 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other({:alloc_created, alloc_pid}, _ctx, state) do
-    Membrane.Logger.debug("Creating allocation with pid #{inspect(alloc_pid)}")
-    state = put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
-    {:ok, state}
-  end
-
-  @impl true
   def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
@@ -327,6 +320,11 @@ defmodule Membrane.ICE.Endpoint do
         ctx,
         state
       ) do
+    state =
+      if Map.has_key?(state.turn_allocs, alloc_pid),
+        do: state,
+        else: put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
+
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {{:ok, actions}, state}
   end
@@ -406,7 +404,7 @@ defmodule Membrane.ICE.Endpoint do
     {state, actions}
   end
 
-  defp start_integrated_turn_servers(options, candidate_port) do
+  defp start_integrated_turn_servers(options) do
     ip = options[:ip] || {0, 0, 0, 0}
     mock_ip = options[:mock_ip] || ip
     {min_port, max_port} = options[:ports_range] || {50_000, 59_999}
@@ -432,19 +430,14 @@ defmodule Membrane.ICE.Endpoint do
         {:ok, port, pid} =
           Utils.start_integrated_turn(
             secret,
-            [
-              client_port_range: client_port_range,
-              alloc_port_range: alloc_port_range,
-              ip: ip,
-              mock_ip: mock_ip,
-              transport: transport,
-              parent: self(),
-              fake_candidate_addr: {mock_ip, candidate_port}
-            ] ++
-              if(transport == :tls,
-                do: [certfile: options[:cert_file]],
-                else: []
-              )
+            client_port_range: client_port_range,
+            alloc_port_range: alloc_port_range,
+            ip: ip,
+            mock_ip: mock_ip,
+            transport: transport,
+            # parent: self(),
+            certfile: options[:cert_file],
+            parent_resolver: &CandidatePortAssigner.get_candidate_port_owner/1
           )
 
         %{
