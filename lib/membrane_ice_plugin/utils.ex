@@ -1,6 +1,10 @@
 defmodule Membrane.ICE.Utils do
   @moduledoc false
 
+  alias Membrane.ICE
+
+  require Membrane.Logger
+
   @numbers_and_letters Enum.concat([?0..?9, ?a..?z, ?A..?Z])
 
   @spec generate_credentials(binary(), binary()) :: {binary(), binary()}
@@ -98,6 +102,63 @@ defmodule Membrane.ICE.Utils do
   @spec is_dtls_hsk_packet(binary()) :: boolean()
   def is_dtls_hsk_packet(<<head, _rest::binary()>> = packet),
     do: head in 20..63 and byte_size(packet) >= 13
+
+  @spec start_integrated_turn_servers(
+          [:udp | :tcp | :tls],
+          ICE.Endpoint.integrated_turn_options_t(),
+          pid() | nil
+        ) :: [any()]
+  def start_integrated_turn_servers(turn_transports, options, parent \\ nil) do
+    ip = options[:ip] || {0, 0, 0, 0}
+    mock_ip = options[:mock_ip] || ip
+    {min_port, max_port} = options[:ports_range] || {50_000, 59_999}
+    medium = trunc((min_port + max_port) / 2)
+
+    client_port_range = {min_port, medium}
+
+    alloc_port_range =
+      if medium == max_port,
+        do: {medium, max_port},
+        else: {medium + 1, max_port}
+
+    turns =
+      turn_transports
+      |> Enum.map(fn transport ->
+        secret = generate_secret()
+
+        {:ok, port, pid} =
+          start_integrated_turn(
+            secret,
+            client_port_range: client_port_range,
+            alloc_port_range: alloc_port_range,
+            ip: ip,
+            mock_ip: mock_ip,
+            transport: transport,
+            parent: parent,
+            certfile: options[:cert_file],
+            parent_resolver: &ICE.CandidatePortAssigner.get_candidate_port_owner/1
+          )
+
+        %{
+          relay_type: transport,
+          secret: secret,
+          server_addr: ip,
+          mocked_server_addr: mock_ip,
+          server_port: port,
+          pid: pid
+        }
+      end)
+
+    Enum.each(turns, fn turn ->
+      addr = Tuple.to_list(turn.server_addr) |> Enum.join(".")
+
+      Membrane.Logger.debug(
+        "Starting #{turn.relay_type} TURN Server at #{inspect(addr)}:#{turn.server_port}"
+      )
+    end)
+
+    turns
+  end
 
   defp send_connectivity_check(attrs, alloc_pid, pwd, magic, trid) do
     attrs =
