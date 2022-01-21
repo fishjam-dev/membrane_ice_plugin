@@ -33,7 +33,7 @@ defmodule Membrane.ICE.Endpoint do
   - `{:new_candidate_full, candidate}`
     Triggered by: `:gather_candidates`
 
-  - `{:integrated_turn_servers, integrated_turn_servers}`
+  - `{:udp_integrated_turn, udp_integrated_turn}`
 
   - `{:handshake_init_data, component_id, handshake_init_data}`
 
@@ -177,20 +177,18 @@ defmodule Membrane.ICE.Endpoint do
 
       options = state.integrated_turn_options
 
-      integrated_turn_servers =
-        if(options[:cert_file], do: [:udp, :tcp, :tls], else: [:udp, :tcp])
-        |> Utils.start_integrated_turn_servers(options, self())
+      [udp_integrated_turn] = Utils.start_integrated_turn_servers([:udp], options, self())
 
       state =
         Map.merge(state, %{
           candidate_port: candidate_port,
-          integrated_turn_servers: Map.new(integrated_turn_servers, &{&1.pid, &1}),
+          udp_integrated_turn: udp_integrated_turn,
           local_ice_pwd: ice_pwd,
           handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
         })
 
       actions = [
-        notify: {:integrated_turn_servers, integrated_turn_servers},
+        notify: {:udp_integrated_turn, udp_integrated_turn},
         notify: {:handshake_init_data, @component_id, fingerprint},
         notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
       ]
@@ -384,10 +382,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_shutdown(_reason, state) do
-    Enum.each(
-      state.integrated_turn_servers,
-      fn {_pid, turn} -> Utils.stop_integrated_turn(turn) end
-    )
+    Utils.stop_integrated_turn(state.udp_integrated_turn)
 
     :ok
   end

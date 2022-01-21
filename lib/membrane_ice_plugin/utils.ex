@@ -126,9 +126,8 @@ defmodule Membrane.ICE.Utils do
       |> Enum.map(fn transport ->
         secret = generate_secret()
 
-        {:ok, port, pid} =
-          start_integrated_turn(
-            secret,
+        opts =
+          [
             client_port_range: client_port_range,
             alloc_port_range: alloc_port_range,
             ip: ip,
@@ -137,7 +136,13 @@ defmodule Membrane.ICE.Utils do
             parent: parent,
             certfile: options[:cert_file],
             parent_resolver: &ICE.CandidatePortAssigner.get_candidate_port_owner/1
-          )
+          ]
+          |> Enum.filter(fn
+            {_key, nil} -> false
+            _other -> true
+          end)
+
+        {:ok, port, pid} = start_integrated_turn(secret, opts)
 
         %{
           relay_type: transport,
