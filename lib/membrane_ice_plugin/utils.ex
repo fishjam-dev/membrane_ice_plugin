@@ -106,12 +106,12 @@ defmodule Membrane.ICE.Utils do
   @spec start_integrated_turn_servers(
           [:udp | :tcp | :tls],
           ICE.Endpoint.integrated_turn_options_t(),
-          pid() | nil
+          Keyword.t()
         ) :: [any()]
-  def start_integrated_turn_servers(turn_transports, options, parent \\ nil) do
-    ip = options[:ip] || {0, 0, 0, 0}
-    mock_ip = options[:mock_ip] || ip
-    {min_port, max_port} = options[:ports_range] || {50_000, 59_999}
+  def start_integrated_turn_servers(turn_transports, turn_options, additional_options \\ []) do
+    ip = turn_options[:ip] || {0, 0, 0, 0}
+    mock_ip = turn_options[:mock_ip] || ip
+    {min_port, max_port} = turn_options[:ports_range] || {50_000, 59_999}
     medium = trunc((min_port + max_port) / 2)
 
     client_port_range = {min_port, medium}
@@ -128,13 +128,14 @@ defmodule Membrane.ICE.Utils do
 
         opts =
           [
+            parent: additional_options[:parent],
+            client_port: additional_options[:port],
             client_port_range: client_port_range,
             alloc_port_range: alloc_port_range,
             ip: ip,
             mock_ip: mock_ip,
             transport: transport,
-            parent: parent,
-            certfile: options[:cert_file],
+            certfile: turn_options[:cert_file],
             parent_resolver: &ICE.CandidatePortAssigner.get_candidate_port_owner/1
           ]
           |> Enum.filter(fn

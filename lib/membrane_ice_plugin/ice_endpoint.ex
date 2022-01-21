@@ -177,7 +177,7 @@ defmodule Membrane.ICE.Endpoint do
 
       options = state.integrated_turn_options
 
-      [udp_integrated_turn] = Utils.start_integrated_turn_servers([:udp], options, self())
+      [udp_integrated_turn] = Utils.start_integrated_turn_servers([:udp], options, parent: self())
 
       state =
         Map.merge(state, %{
