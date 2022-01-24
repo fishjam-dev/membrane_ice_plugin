@@ -84,12 +84,15 @@ defmodule Membrane.ICE.Endpoint do
   there is no need to open socket there. There are some cases, where it is necessary, to tell
   the browser, that we have opened allocation on different IP, that we have TURN listening on,
   eg. we are using Docker container
-  - `:ports_range` range, where integrated TURN server will try to open ports
+  - `:ports_range` - range, where integrated TURN server will try to open ports
+  - `:cert_file` - path to file with certificate and private key, used for estabilishing TLS connection
+  for TURN using TLS over TCP
   """
   @type integrated_turn_options_t() :: [
           ip: :inet.ip4_address() | nil,
           mock_ip: :inet.ip4_address() | nil,
-          ports_range: {:inet.port_number(), :inet.port_number()} | nil
+          ports_range: {:inet.port_number(), :inet.port_number()} | nil,
+          cert_file: binary() | nil
         ]
 
   def_options dtls?: [
@@ -407,22 +410,32 @@ defmodule Membrane.ICE.Endpoint do
         do: {medium, max_port},
         else: {medium + 1, max_port}
 
+    turn_types =
+      if is_binary(options[:cert_file]),
+        do: [:udp, :tcp, :tls],
+        else: [:udp, :tcp]
+
     turns =
-      [:udp, :tcp]
+      turn_types
       |> Enum.map(fn transport ->
         secret = Utils.generate_secret()
 
         {:ok, port, pid} =
           Utils.start_integrated_turn(
             secret,
-            client_port_range: client_port_range,
-            alloc_port_range: alloc_port_range,
-            ip: ip,
-            mock_ip: mock_ip,
-            transport: transport,
-            parent: self(),
-            fake_candidate_addr: {mock_ip, @fake_candidate_port},
-            elixir_ice_impl: true
+            [
+              client_port_range: client_port_range,
+              alloc_port_range: alloc_port_range,
+              ip: ip,
+              mock_ip: mock_ip,
+              transport: transport,
+              parent: self(),
+              fake_candidate_addr: {mock_ip, @fake_candidate_port}
+            ] ++
+              if(transport == :tls,
+                do: [certfile: options[:cert_file]],
+                else: []
+              )
           )
 
         %{
