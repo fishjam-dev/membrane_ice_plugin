@@ -51,8 +51,7 @@ defmodule Membrane.ICE.Endpoint do
   Data about integrated TURN servers set up by `Membrane.ICE.Endpoint`, passed to the parent via notification, should be
   forwarded to the second peer, that will try to establish ICE connection with `Membrane.ICE.Endpoint`. The second peer
   should have at least one allocation, in any of running integrated TURN servers (Firefox or Chrome will probably
-  have one allocation per TURN Server). Integrated TURN server sends message `{:alloc_created, alloc_pid}` after
-  creating a new allocation.
+  have one allocation per TURN Server)
 
   #### Performing ICE connectivity checks, selecting candidates pair
   All ICE candidates from the second peer, that are not relay candidates corresponded to allocations on integrated TURN
@@ -175,9 +174,8 @@ defmodule Membrane.ICE.Endpoint do
       ice_ufrag = Utils.generate_ice_ufrag()
       ice_pwd = Utils.generate_ice_pwd()
 
-      options = state.integrated_turn_options
-
-      [udp_integrated_turn] = Utils.start_integrated_turn_servers([:udp], options, parent: self())
+      [udp_integrated_turn] =
+        Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options, parent: self())
 
       state =
         Map.merge(state, %{
@@ -205,10 +203,19 @@ defmodule Membrane.ICE.Endpoint do
     with {:ok, candidate_port} <- CandidatePortAssigner.assign_candidate_port() do
       ice_ufrag = Utils.generate_ice_ufrag()
       ice_pwd = Utils.generate_ice_pwd()
-      state = Map.put(state, :local_ice_pwd, ice_pwd)
+
+      [udp_integrated_turn] =
+        Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options, parent: self())
+
+      state =
+        Map.merge(state, %{
+          candidate_port: candidate_port,
+          udp_integrated_turn: udp_integrated_turn,
+          local_ice_pwd: ice_pwd
+        })
 
       actions = [
-        candidate_port: candidate_port,
+        notify: {:udp_integrated_turn, udp_integrated_turn},
         notify: {:handshake_init_data, @component_id, nil},
         notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
       ]
@@ -382,7 +389,9 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_shutdown(_reason, state) do
-    Utils.stop_integrated_turn(state.udp_integrated_turn)
+    with %{udp_integrated_turn: turn} <- state do
+      Utils.stop_integrated_turn(turn)
+    end
 
     :ok
   end
