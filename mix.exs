@@ -27,6 +27,7 @@ defmodule Membrane.ICE.Mixfile do
 
   def application do
     [
+      mod: {Membrane.ICE.Application, []},
       extra_applications: []
     ]
   end

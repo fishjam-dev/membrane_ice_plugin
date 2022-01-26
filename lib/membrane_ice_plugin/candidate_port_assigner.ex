@@ -10,14 +10,14 @@ defmodule Membrane.ICE.CandidatePortAssigner do
   end
 
   @spec assign_candidate_port() ::
-          {:ok, number()} | {:error, :no_free_candidate_port | :port_number_is_not_valid}
+          {:ok, number()} | {:error, :no_free_candidate_port}
   def assign_candidate_port() do
     random_port = Enum.random(@min_port..@max_port)
     do_assign_candidate_port(random_port, 0)
   end
 
   @spec get_candidate_port_owner(number()) ::
-          {:ok, pid()} | {:error, :candidate_port_owner_not_alive}
+          {:ok, pid()} | {:error, :candidate_port_owner_not_alive | :port_number_is_not_valid}
 
   def get_candidate_port_owner(port) when port in @min_port..@max_port do
     case Registry.lookup(__MODULE__, port) do
