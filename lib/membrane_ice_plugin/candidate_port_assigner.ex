@@ -4,25 +4,23 @@ defmodule Membrane.ICE.CandidatePortAssigner do
   @min_port 40000
   @max_port 65535
 
+  @spec start_link() :: {:ok, pid()} | {:error, term()}
+  def start_link() do
+    Registry.start_link(name: __MODULE__, keys: :unique)
+  end
+
   @spec assign_candidate_port() :: {:ok, number()} | {:error, :no_free_candidate_port}
   def assign_candidate_port() do
-    if Process.whereis(__MODULE__) == nil,
-      do: Registry.start_link(keys: :unique, name: __MODULE__)
-
-    random_port = :rand.uniform(@max_port - @min_port) + @min_port
+    random_port = Enum.random(@min_port..@max_port)
     do_assign_candidate_port(random_port, 0)
   end
 
   @spec get_candidate_port_owner(number()) ::
           {:ok, pid()} | {:error, :candidate_port_owner_not_alive}
   def get_candidate_port_owner(port) do
-    if Process.whereis(__MODULE__) == nil do
-      {:error, :candidate_owner_not_alive}
-    else
-      case Registry.lookup(__MODULE__, port) do
-        [{pid, nil}] -> {:ok, pid}
-        [] -> {:error, :candidate_owner_not_alive}
-      end
+    case Registry.lookup(__MODULE__, port) do
+      [{pid, nil}] -> {:ok, pid}
+      [] -> {:error, :candidate_port_owner_not_alive}
     end
   end
 

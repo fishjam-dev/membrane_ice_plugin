@@ -63,6 +63,7 @@ defmodule Membrane.ICE.Endpoint do
   After starting ICE or after every ICE restart, ICE Endpoint will pass all traffic and connectivity checks via
   allocation, which corresponds to the last selected ICE candidates pair.
   """
+
   use Membrane.Filter
 
   alias Membrane.ICE.{Utils, Handshake, CandidatePortAssigner}
@@ -328,9 +329,15 @@ defmodule Membrane.ICE.Endpoint do
         state
       ) do
     state =
-      if Map.has_key?(state.turn_allocs, alloc_pid),
-        do: state,
-        else: put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
+      if Map.has_key?(state.turn_allocs, alloc_pid) do
+        state
+      else
+        Membrane.Logger.debug(
+          "First connectivity check arrived from allocation with pid #{inspect(alloc_pid)}"
+        )
+
+        put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
+      end
 
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {{:ok, actions}, state}
