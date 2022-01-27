@@ -37,7 +37,7 @@ defmodule Membrane.ICE.Mixfile do
 
   defp deps do
     [
-      {:membrane_core, "~> 0.8.1"},
+      {:membrane_core, github: "membraneframework/membrane_core", override: true},
       {:bunch, "~> 1.3.0"},
       {:fake_turn, github: "membraneframework/fake_turn", branch: "candidate-port-registry"},
       {:ex_dtls, "~> 0.8.0"},
