@@ -547,7 +547,12 @@ defmodule Membrane.ICE.Endpoint do
           _state -> :ok
         end
 
-        {%{state | cached_hsk_packets: nil}, []}
+        actions =
+          if state.handshake.state[:finished?],
+            do: [notify: {:connection_ready, @stream_id, @component_id}],
+            else: []
+
+        {%{state | cached_hsk_packets: nil}, actions}
       end
 
     {state, demand_actions} = handle_component_state_ready(ctx, state)
