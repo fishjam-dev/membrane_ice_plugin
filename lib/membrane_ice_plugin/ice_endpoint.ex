@@ -1,6 +1,6 @@
 defmodule Membrane.ICE.Endpoint do
   @moduledoc """
-  Filter used for establishing ICE connection, sending and receiving messages.
+  Endpoint used for establishing ICE connection, sending and receiving messages.
 
   ### Architecture and pad semantic
   Both input and output pads are dynamic ones.
@@ -64,7 +64,7 @@ defmodule Membrane.ICE.Endpoint do
   allocation, which corresponds to the last selected ICE candidates pair.
   """
 
-  use Membrane.Filter
+  use Membrane.Endpoint
 
   alias Membrane.ICE.{Utils, Handshake, CandidatePortAssigner}
   alias Membrane.Funnel
@@ -249,7 +249,7 @@ defmodule Membrane.ICE.Endpoint do
     do: {:ok, state}
 
   @impl true
-  def handle_process(
+  def handle_write(
         Pad.ref(:input, @component_id) = pad,
         %Membrane.Buffer{payload: payload},
         _ctx,
@@ -273,9 +273,6 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_event(_pad, _event, _ctx, state), do: {:ok, state}
-
-  @impl true
-  def handle_caps(_pad, _caps, _ctx, state), do: {:ok, state}
 
   @impl true
   def handle_other(:gather_candidates, _ctx, state) do
