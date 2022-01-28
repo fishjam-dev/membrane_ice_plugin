@@ -15,6 +15,7 @@ defmodule Membrane.ICE.CandidatePortAssigner do
     IO.inspect(self(), label: "Assigning port for pid ")
 
     random_port = Enum.random(@min_port..@max_port)
+
     do_assign_candidate_port(random_port, 0)
     |> IO.inspect(label: "assigning port no")
   end
@@ -28,6 +29,7 @@ defmodule Membrane.ICE.CandidatePortAssigner do
         IO.inspect({port, pid}, label: "Found owner of port no")
 
         {:ok, pid}
+
       [] ->
         IO.inspect(port, label: "Not found owner of port no")
 
