@@ -12,12 +12,12 @@ defmodule Membrane.ICE.CandidatePortAssigner do
   @spec assign_candidate_port() ::
           {:ok, number()} | {:error, :no_free_candidate_port}
   def assign_candidate_port() do
-    IO.inspect(self(), label: "Assigning port for pid ")
+    # IO.inspect(self(), label: "Assigning port for pid ")
 
     random_port = Enum.random(@min_port..@max_port)
 
     do_assign_candidate_port(random_port, 0)
-    |> IO.inspect(label: "assigning port no")
+    # |> IO.inspect(label: "assigning port no")
   end
 
   @spec get_candidate_port_owner(number()) ::
@@ -26,12 +26,12 @@ defmodule Membrane.ICE.CandidatePortAssigner do
   def get_candidate_port_owner(port) when port in @min_port..@max_port do
     case Registry.lookup(__MODULE__, port) do
       [{pid, nil}] ->
-        IO.inspect({port, pid}, label: "Found owner of port no")
+        # IO.inspect({port, pid}, label: "Found owner of port no")
 
         {:ok, pid}
 
       [] ->
-        IO.inspect(port, label: "Not found owner of port no")
+        # IO.inspect(port, label: "Not found owner of port no")
 
         {:error, :candidate_port_owner_not_alive}
     end
