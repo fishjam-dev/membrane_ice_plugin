@@ -162,7 +162,8 @@ defmodule Membrane.ICE.Endpoint do
        hsk_opts: hsk_opts,
        component_connected?: false,
        cached_hsk_packets: nil,
-       component_ready?: false
+       component_ready?: false,
+       in_ice_restart?: true
      }}
   end
 
@@ -299,7 +300,12 @@ defmodule Membrane.ICE.Endpoint do
     ice_ufrag = Utils.generate_ice_ufrag()
     ice_pwd = Utils.generate_ice_pwd()
 
-    state = Map.put(state, :local_ice_pwd, ice_pwd)
+    state =
+      Map.merge(state, %{
+        local_ice_pwd: ice_pwd,
+        in_ice_restart?: true
+      })
+
     credentials = "#{ice_ufrag} #{ice_pwd}"
     {{:ok, notify: {:local_credentials, credentials}}, state}
   end
@@ -338,9 +344,6 @@ defmodule Membrane.ICE.Endpoint do
 
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
-
-      # IO.inspect(attrs, label: "Received connectivity check on #{inspect(self())} via alloc #{alloc_pid |> inspect()}")
-
 
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {{:ok, actions}, state}
@@ -420,70 +423,40 @@ defmodule Membrane.ICE.Endpoint do
     {state, actions}
   end
 
-  defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
+  defp do_handle_connectivity_check( %{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
-    alloc = state.turn_allocs[alloc_pid]
+    if state.in_ice_restart? or alloc_pid == state.selected_alloc do
+      alloc = state.turn_allocs[alloc_pid]
 
-    Utils.send_binding_success(
-      alloc_pid,
-      state.local_ice_pwd,
-      attrs.magic,
-      attrs.trid,
-      attrs.username
-    )
-
-    [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
-    |> then(&"Sending Binding Success with params: #{inspect(&1)}")
-    |> Membrane.Logger.debug()
-
-    alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
-
-    if not alloc.passed_check_from_sfu do
-      trid = Utils.generate_transaction_id()
-      new_username = String.split(attrs.username, ":") |> Enum.reverse() |> Enum.join(":")
-
-      Utils.send_binding_request(
+      Utils.send_binding_success(
         alloc_pid,
-        state.remote_ice_pwd,
+        state.local_ice_pwd,
         attrs.magic,
-        trid,
-        new_username,
-        attrs.priority
+        attrs.trid,
+        attrs.username
       )
 
-      [
-        magic: attrs.magic,
-        transaction_id: trid,
-        username: new_username,
-        priority: attrs.priority,
-        ice_controlled: true
-      ]
-      |> then(&"Sending Binding Request with params: #{inspect(&1)}")
+      [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
+      |> then(&"Sending Binding Success with params: #{inspect(&1)}")
       |> Membrane.Logger.debug()
+
+      alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
+
+      alloc =
+        if attrs.use_candidate,
+          do: %Allocation{alloc | in_nominated_pair: true},
+          else: alloc
+
+      state = put_in(state, [:turn_allocs, alloc_pid], alloc)
+      maybe_select_alloc(alloc, ctx, state)
+    else
+      {state, []}
     end
-
-    alloc =
-      if attrs.use_candidate,
-        do: %Allocation{alloc | in_nominated_pair: true},
-        else: alloc
-
-    state = put_in(state, [:turn_allocs, alloc_pid], alloc)
-    maybe_select_alloc(alloc, ctx, state)
   end
 
-  defp do_handle_connectivity_check(%{class: :response} = attrs, alloc_pid, ctx, state) do
+  defp do_handle_connectivity_check(attrs, _alloc_pid, _ctx, state) do
     log_debug_connectivity_check(attrs)
-
-    alloc = state.turn_allocs[alloc_pid]
-    alloc = %Allocation{alloc | passed_check_from_sfu: true}
-    state = put_in(state, [:turn_allocs, alloc_pid], alloc)
-    maybe_select_alloc(alloc, ctx, state)
-  end
-
-  defp do_handle_connectivity_check(%{class: :error} = attrs, _, _, state) do
-    log_debug_connectivity_check(attrs)
-
     {state, []}
   end
 
@@ -504,13 +477,12 @@ defmodule Membrane.ICE.Endpoint do
   defp maybe_select_alloc(
          %Allocation{
            passed_check_from_browser: true,
-           passed_check_from_sfu: true,
            in_nominated_pair: true
          } = alloc,
          ctx,
          state
        ) do
-    if state.selected_alloc != alloc.pid do
+    if state.selected_alloc != alloc.pid and state.in_ice_restart? do
       select_alloc(alloc.pid, ctx, state)
     else
       {state, []}
@@ -559,6 +531,7 @@ defmodule Membrane.ICE.Endpoint do
       end
 
     {state, demand_actions} = handle_component_state_ready(ctx, state)
+    state = %{state | in_ice_restart?: false}
     actions = demand_actions ++ actions
     {state, actions}
   end
