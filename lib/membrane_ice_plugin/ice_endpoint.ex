@@ -339,7 +339,7 @@ defmodule Membrane.ICE.Endpoint do
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
 
-      IO.inspect(attrs, label: "Received connectivity check on #{inspect(self())} via alloc #{alloc_pid |> inspect()}")
+      # IO.inspect(attrs, label: "Received connectivity check on #{inspect(self())} via alloc #{alloc_pid |> inspect()}")
 
 
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
