@@ -74,6 +74,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @component_id 1
   @stream_id 1
+  @time_between_keepalives 15000
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
@@ -144,13 +145,12 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_init(options) do
     %__MODULE__{
-      ice_lite?: ice_lite?,
       integrated_turn_options: integrated_turn_options,
       dtls?: dtls?,
       handshake_opts: hsk_opts
     } = options
 
-    if ice_lite?, do: Process.send_after(self(), :maybe_send_binding_indication, 1000)
+    Process.send_after(self(), :maybe_send_keepalive, @time_between_keepalives)
 
     {:ok,
      %{
@@ -350,7 +350,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other(:maybe_send_binding_indication, _ctx, state) do
+  def handle_other(:maybe_send_keepalive, _ctx, state) do
     with %{selected_alloc: alloc_pid} when is_pid(alloc_pid) <- state,
          %{^alloc_pid => %{magic: magic}} when magic != nil <- state.turn_allocs do
       tr_id = Utils.generate_transaction_id()
@@ -361,7 +361,7 @@ defmodule Membrane.ICE.Endpoint do
       )
     end
 
-    Process.send_after(self(), :maybe_send_binding_indication, 1000)
+    Process.send_after(self(), :maybe_send_keepalive, @time_between_keepalives)
     {:ok, state}
   end
 
