@@ -562,8 +562,10 @@ defmodule Membrane.ICE.Endpoint do
           _state -> :ok
         end
 
+        IO.inspect(state.handshake, label: "state.handshake")
+
         actions =
-          if state.handshake.state[:finished?],
+          if state.in_ice_restart? and state.handshake.status == :finished,
             do: [notify: {:connection_ready, @stream_id, @component_id}],
             else: []
 
