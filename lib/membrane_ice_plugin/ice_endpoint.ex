@@ -138,7 +138,7 @@ defmodule Membrane.ICE.Endpoint do
                   magic: nil,
                   in_nominated_pair: false,
                   passed_check_from_browser: false,
-                  passed_check_from_sfu: true
+                  passed_check_from_sfu: false
                 ]
   end
 
