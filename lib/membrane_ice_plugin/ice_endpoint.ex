@@ -137,7 +137,7 @@ defmodule Membrane.ICE.Endpoint do
                   magic: nil,
                   in_nominated_pair: false,
                   passed_check_from_browser: false,
-                  passed_check_from_sfu: false
+                  passed_check_from_sfu: true
                 ]
   end
 
@@ -423,7 +423,7 @@ defmodule Membrane.ICE.Endpoint do
     {state, actions}
   end
 
-  defp do_handle_connectivity_check( %{class: :request} = attrs, alloc_pid, ctx, state) do
+  defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
     if state.in_ice_restart? or alloc_pid == state.selected_alloc do
@@ -443,29 +443,29 @@ defmodule Membrane.ICE.Endpoint do
 
       alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
 
-    if not alloc.passed_check_from_sfu do
-      trid = Utils.generate_transaction_id()
-      new_username = String.split(attrs.username, ":") |> Enum.reverse() |> Enum.join(":")
+      if not alloc.passed_check_from_sfu do
+        trid = Utils.generate_transaction_id()
+        new_username = String.split(attrs.username, ":") |> Enum.reverse() |> Enum.join(":")
 
-      Utils.send_binding_request(
-        alloc_pid,
-        state.remote_ice_pwd,
-        attrs.magic,
-        trid,
-        new_username,
-        attrs.priority
-      )
+        Utils.send_binding_request(
+          alloc_pid,
+          state.remote_ice_pwd,
+          attrs.magic,
+          trid,
+          new_username,
+          attrs.priority
+        )
 
-      [
-        magic: attrs.magic,
-        transaction_id: trid,
-        username: new_username,
-        priority: attrs.priority,
-        ice_controlled: true
-      ]
-      |> then(&"Sending Binding Request with params: #{inspect(&1)}")
-      |> Membrane.Logger.debug()
-    end
+        [
+          magic: attrs.magic,
+          transaction_id: trid,
+          username: new_username,
+          priority: attrs.priority,
+          ice_controlled: true
+        ]
+        |> then(&"Sending Binding Request with params: #{inspect(&1)}")
+        |> Membrane.Logger.debug()
+      end
 
       alloc =
         if attrs.use_candidate,
