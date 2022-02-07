@@ -74,7 +74,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @component_id 1
   @stream_id 1
-  @time_between_keepalives 15000
+  @time_between_keepalives 1000
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
