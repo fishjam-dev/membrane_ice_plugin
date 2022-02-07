@@ -426,57 +426,57 @@ defmodule Membrane.ICE.Endpoint do
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
-    if state.in_ice_restart? or alloc_pid == state.selected_alloc do
-      alloc = state.turn_allocs[alloc_pid]
+    # if state.in_ice_restart? or alloc_pid == state.selected_alloc do
+    alloc = state.turn_allocs[alloc_pid]
 
-      Utils.send_binding_success(
+    Utils.send_binding_success(
+      alloc_pid,
+      state.local_ice_pwd,
+      attrs.magic,
+      attrs.trid,
+      attrs.username
+    )
+
+    [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
+    |> then(&"Sending Binding Success with params: #{inspect(&1)}")
+    |> Membrane.Logger.debug()
+
+    alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
+
+    if not alloc.passed_check_from_sfu do
+      trid = Utils.generate_transaction_id()
+      new_username = String.split(attrs.username, ":") |> Enum.reverse() |> Enum.join(":")
+
+      Utils.send_binding_request(
         alloc_pid,
-        state.local_ice_pwd,
+        state.remote_ice_pwd,
         attrs.magic,
-        attrs.trid,
-        attrs.username
+        trid,
+        new_username,
+        attrs.priority
       )
 
-      [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
-      |> then(&"Sending Binding Success with params: #{inspect(&1)}")
+      [
+        magic: attrs.magic,
+        transaction_id: trid,
+        username: new_username,
+        priority: attrs.priority,
+        ice_controlled: true
+      ]
+      |> then(&"Sending Binding Request with params: #{inspect(&1)}")
       |> Membrane.Logger.debug()
-
-      alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
-
-      if not alloc.passed_check_from_sfu do
-        trid = Utils.generate_transaction_id()
-        new_username = String.split(attrs.username, ":") |> Enum.reverse() |> Enum.join(":")
-
-        Utils.send_binding_request(
-          alloc_pid,
-          state.remote_ice_pwd,
-          attrs.magic,
-          trid,
-          new_username,
-          attrs.priority
-        )
-
-        [
-          magic: attrs.magic,
-          transaction_id: trid,
-          username: new_username,
-          priority: attrs.priority,
-          ice_controlled: true
-        ]
-        |> then(&"Sending Binding Request with params: #{inspect(&1)}")
-        |> Membrane.Logger.debug()
-      end
-
-      alloc =
-        if attrs.use_candidate,
-          do: %Allocation{alloc | in_nominated_pair: true},
-          else: alloc
-
-      state = put_in(state, [:turn_allocs, alloc_pid], alloc)
-      maybe_select_alloc(alloc, ctx, state)
-    else
-      {state, []}
     end
+
+    alloc =
+      if attrs.use_candidate,
+        do: %Allocation{alloc | in_nominated_pair: true},
+        else: alloc
+
+    state = put_in(state, [:turn_allocs, alloc_pid], alloc)
+    maybe_select_alloc(alloc, ctx, state)
+    # else
+    #   {state, []}
+    # end
   end
 
   defp do_handle_connectivity_check(%{class: :response} = attrs, alloc_pid, ctx, state) do
@@ -516,7 +516,8 @@ defmodule Membrane.ICE.Endpoint do
          ctx,
          state
        ) do
-    if state.selected_alloc != alloc.pid and state.in_ice_restart? do
+    # if state.selected_alloc != alloc.pid and state.in_ice_restart? do
+    if state.selected_alloc != alloc.pid do
       select_alloc(alloc.pid, ctx, state)
     else
       {state, []}
@@ -535,7 +536,12 @@ defmodule Membrane.ICE.Endpoint do
 
     {state, actions} =
       if state.dtls? == false or state.handshake.status == :finished do
-        {state, [notify: {:connection_ready, @stream_id, @component_id}]}
+        actions =
+          if state.in_ice_restart?,
+            do: [notify: {:connection_ready, @stream_id, @component_id}],
+            else: []
+
+        {state, actions}
       else
         Membrane.Logger.debug("Checking for cached handshake packets")
 
