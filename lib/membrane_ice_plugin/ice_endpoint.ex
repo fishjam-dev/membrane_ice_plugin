@@ -163,7 +163,8 @@ defmodule Membrane.ICE.Endpoint do
        component_connected?: false,
        cached_hsk_packets: nil,
        component_ready?: false,
-       in_ice_restart?: true
+       in_ice_restart?: true,
+       candidate_sent?: false
      }}
   end
 
@@ -285,6 +286,8 @@ defmodule Membrane.ICE.Endpoint do
       Utils.generate_fake_ice_candidate({state.fake_candidate_ip, state.candidate_port})
     }
 
+    state = %{state | candidate_sent?: true}
+
     {{:ok, notify: msg}, state}
   end
 
@@ -303,7 +306,8 @@ defmodule Membrane.ICE.Endpoint do
     state =
       Map.merge(state, %{
         local_ice_pwd: ice_pwd,
-        in_ice_restart?: true
+        in_ice_restart?: true,
+        candidate_sent?: false
       })
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
@@ -534,10 +538,14 @@ defmodule Membrane.ICE.Endpoint do
 
     state = %{state | component_connected?: true}
 
+    if state.in_ice_restart? and not state.candidate_sent? do
+      IO.puts("SELECTING ALLOC, DURING ICE RESTART, BEFORE SENDING ICE CANDIDATE")
+    end
+
     {state, actions} =
       if state.dtls? == false or state.handshake.status == :finished do
         actions =
-          if state.in_ice_restart?,
+          if state.in_ice_restart? and state.candidate_sent?,
             do: [notify: {:connection_ready, @stream_id, @component_id}],
             else: []
 
@@ -562,12 +570,11 @@ defmodule Membrane.ICE.Endpoint do
           _state -> :ok
         end
 
-        IO.inspect(state.handshake, label: "state.handshake")
-
         actions =
-          if state.in_ice_restart? and state.handshake.status == :finished,
-            do: [notify: {:connection_ready, @stream_id, @component_id}],
-            else: []
+          if state.in_ice_restart? and state.candidate_sent? and
+               state.handshake.status == :finished,
+             do: [notify: {:connection_ready, @stream_id, @component_id}],
+             else: []
 
         {%{state | cached_hsk_packets: nil}, actions}
       end
