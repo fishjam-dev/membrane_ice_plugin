@@ -368,6 +368,8 @@ defmodule Membrane.ICE.Endpoint do
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
 
+    IO.inspect(attrs, pretty: true, label: "Receiving STUN message from #{inspect(alloc_pid)} in #{inspect(self())}")
+
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {{:ok, actions}, state}
   end
@@ -449,7 +451,6 @@ defmodule Membrane.ICE.Endpoint do
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
-    # if state.in_ice_restart? or alloc_pid == state.selected_alloc do
     alloc = state.turn_allocs[alloc_pid]
 
     Utils.send_binding_success(
