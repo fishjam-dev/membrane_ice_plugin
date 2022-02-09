@@ -154,6 +154,7 @@ defmodule Membrane.ICE.Endpoint do
 
     {:ok,
      %{
+       id: to_string(Enum.map(1..10, fn _ -> Enum.random(?a..?z) end)),
        turn_allocs: %{},
        integrated_turn_options: integrated_turn_options,
        fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
@@ -163,8 +164,9 @@ defmodule Membrane.ICE.Endpoint do
        component_connected?: false,
        cached_hsk_packets: nil,
        component_ready?: false,
-       in_ice_restart?: true,
-       candidate_sent?: false
+       pending_connection_ready?: false,
+       connection_ready_sent?: false,
+       sdp_offer_arrived?: false
      }}
   end
 
@@ -281,14 +283,27 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_other(:gather_candidates, _ctx, state) do
+    IO.puts("GATHERING CANDIDATES #{state.id}")
+
     msg = {
       :new_candidate_full,
       Utils.generate_fake_ice_candidate({state.fake_candidate_ip, state.candidate_port})
     }
 
-    state = %{state | candidate_sent?: true}
-
     {{:ok, notify: msg}, state}
+  end
+
+  @impl true
+  def handle_other(:sdp_offer_arrived, _ctx, state) when state.pending_connection_ready? do
+    state = %{state | connection_ready_sent?: true, pending_connection_ready?: false}
+    actions = [notify: {:connection_ready, @stream_id, @component_id}]
+    {{:ok, actions}, state}
+  end
+
+  @impl true
+  def handle_other(:sdp_offer_arrived, _ctx, state) do
+    state = %{state | sdp_offer_arrived?: true}
+    {:ok, state}
   end
 
   @impl true
@@ -306,8 +321,8 @@ defmodule Membrane.ICE.Endpoint do
     state =
       Map.merge(state, %{
         local_ice_pwd: ice_pwd,
-        in_ice_restart?: true,
-        candidate_sent?: false
+        connection_ready_sent?: false,
+        sdp_offer_arrived?: false
       })
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
@@ -538,18 +553,27 @@ defmodule Membrane.ICE.Endpoint do
 
     state = %{state | component_connected?: true}
 
-    if state.in_ice_restart? and not state.candidate_sent? do
-      IO.puts("SELECTING ALLOC, DURING ICE RESTART, BEFORE SENDING ICE CANDIDATE")
-    end
+    IO.puts("SELECTING ALLOC IN #{state.id}")
+
+    # if state.in_ice_restart? and not state.sdp_offer_arrived? do
+    #   IO.puts("SELECTING ALLOC, DURING ICE RESTART, BEFORE RECEIVING SDP OFFER #{state.id}")
+    # end
 
     {state, actions} =
       if state.dtls? == false or state.handshake.status == :finished do
-        actions =
-          if state.in_ice_restart? and state.candidate_sent?,
-            do: [notify: {:connection_ready, @stream_id, @component_id}],
-            else: []
+        case state do
+          %{connection_ready_sent?: false, sdp_offer_arrived?: true} ->
+            IO.puts("SENDING CONNECTION READY IN CASE 1 #{state.id}")
 
-        {state, actions}
+            {%{state | connection_ready_sent?: true},
+             [notify: {:connection_ready, @stream_id, @component_id}]}
+
+          %{connection_ready_sent?: false, sdp_offer_arrived?: false} ->
+            {%{state | pending_connection_ready?: true}, []}
+
+          %{} ->
+            {state, []}
+        end
       else
         Membrane.Logger.debug("Checking for cached handshake packets")
 
@@ -570,17 +594,29 @@ defmodule Membrane.ICE.Endpoint do
           _state -> :ok
         end
 
-        actions =
-          if state.in_ice_restart? and state.candidate_sent? and
-               state.handshake.status == :finished,
-             do: [notify: {:connection_ready, @stream_id, @component_id}],
-             else: []
+        {state, actions} =
+          if state.handshake.status == :finished do
+            case state do
+              %{connection_ready_sent?: false, sdp_offer_arrived?: true} ->
+                IO.puts("SENDING CONNECTION READY IN CASE 2 #{state.id}")
+
+                {%{state | connection_ready_sent?: true},
+                 [notify: {:connection_ready, @stream_id, @component_id}]}
+
+              %{connection_ready_sent?: false, sdp_offer_arrived?: false} ->
+                {%{state | pending_connection_ready?: true}, []}
+
+              %{} ->
+                {state, []}
+            end
+          else
+            {state, []}
+          end
 
         {%{state | cached_hsk_packets: nil}, actions}
       end
 
     {state, demand_actions} = handle_component_state_ready(ctx, state)
-    state = %{state | in_ice_restart?: false}
     actions = demand_actions ++ actions
     {state, actions}
   end
@@ -624,14 +660,21 @@ defmodule Membrane.ICE.Endpoint do
     state = Map.put(state, :handshake, %{state: hsk_state, status: :finished, data: hsk_data})
 
     {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
+    # if state.component_connected? do
+    #   IO.puts("SENDING CONNECTION READY IN CASE 3 #{state.id}")
+    #   [notify: {:connection_ready, @stream_id, @component_id}]
+    # else
+    #   []
+    # end
+    {state, optional_actions} =
+      if state.sdp_offer_arrived? do
+        IO.puts("SENDING CONNECTION READY IN CASE 3 #{state.id}")
+        {state, [notify: {:connection_ready, @stream_id, @component_id}]}
+      else
+        {%{state | pending_connection_ready?: true}, []}
+      end
 
-    actions =
-      actions ++
-        if state.component_connected?,
-          do: [notify: {:connection_ready, @stream_id, @component_id}],
-          else: []
-
-    {{:ok, actions}, state}
+    {{:ok, optional_actions ++ actions}, state}
   end
 
   defp handle_component_state_ready(ctx, state) do
