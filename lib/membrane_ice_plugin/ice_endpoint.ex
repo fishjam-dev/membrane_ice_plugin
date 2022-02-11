@@ -374,11 +374,6 @@ defmodule Membrane.ICE.Endpoint do
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
 
-    IO.inspect(attrs,
-      pretty: true,
-      label: "Receiving STUN message from #{inspect(alloc_pid)} in #{inspect(self())}"
-    )
-
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {{:ok, actions}, state}
   end

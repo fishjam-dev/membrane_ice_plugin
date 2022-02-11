@@ -174,11 +174,6 @@ defmodule Membrane.ICE.Utils do
         trid: trid
       ] ++ attrs
 
-    IO.inspect(attrs,
-      pretty: true,
-      label: "Sending STUN message to #{inspect(alloc_pid)} from #{inspect(self())}"
-    )
-
     send(alloc_pid, {:send_connectivity_check, attrs})
   end
 
