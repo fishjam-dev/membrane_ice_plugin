@@ -152,22 +152,26 @@ defmodule Membrane.ICE.Endpoint do
 
     Process.send_after(self(), :maybe_send_keepalive, @time_between_keepalives)
 
-    {:ok,
-     %{
-       id: to_string(Enum.map(1..10, fn _ -> Enum.random(?a..?z) end)),
-       turn_allocs: %{},
-       integrated_turn_options: integrated_turn_options,
-       fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
-       selected_alloc: nil,
-       dtls?: dtls?,
-       hsk_opts: hsk_opts,
-       component_connected?: false,
-       cached_hsk_packets: nil,
-       component_ready?: false,
-       pending_connection_ready?: false,
-       connection_ready_sent?: false,
-       sdp_offer_arrived?: false
-     }}
+    state =
+      %{
+        id: to_string(Enum.map(1..10, fn _ -> Enum.random(?a..?z) end)),
+        turn_allocs: %{},
+        integrated_turn_options: integrated_turn_options,
+        fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
+        selected_alloc: nil,
+        dtls?: dtls?,
+        hsk_opts: hsk_opts,
+        component_connected?: false,
+        cached_hsk_packets: nil,
+        component_ready?: false,
+        pending_connection_ready?: false,
+        connection_ready_sent?: false,
+        sdp_offer_arrived?: false,
+        ice_restart_timer: nil
+      }
+      |> start_ice_restart_timer()
+
+    {:ok, state}
   end
 
   @impl true
@@ -300,6 +304,7 @@ defmodule Membrane.ICE.Endpoint do
         pending_connection_ready?: false
     }
 
+    state = stop_ice_restart_timer(state)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
     {{:ok, actions}, state}
   end
@@ -328,6 +333,7 @@ defmodule Membrane.ICE.Endpoint do
         connection_ready_sent?: false,
         sdp_offer_arrived?: false
       })
+      |> start_ice_restart_timer()
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
     {{:ok, notify: {:local_credentials, credentials}}, state}
@@ -368,7 +374,10 @@ defmodule Membrane.ICE.Endpoint do
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
 
-    IO.inspect(attrs, pretty: true, label: "Receiving STUN message from #{inspect(alloc_pid)} in #{inspect(self())}")
+    IO.inspect(attrs,
+      pretty: true,
+      label: "Receiving STUN message from #{inspect(alloc_pid)} in #{inspect(self())}"
+    )
 
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {{:ok, actions}, state}
@@ -420,6 +429,14 @@ defmodule Membrane.ICE.Endpoint do
 
       {{:ok, actions}, state}
     end
+  end
+
+  @impl true
+  def handle_other(:ice_restart_timeout, _ctx, state) do
+    Membrane.Logger.debug("ICE restart failed due to timeout")
+
+    actions = [notify: {:connection_failed, @stream_id, @component_id}]
+    {{:ok, actions}, state}
   end
 
   @impl true
@@ -498,9 +515,6 @@ defmodule Membrane.ICE.Endpoint do
 
     state = put_in(state, [:turn_allocs, alloc_pid], alloc)
     maybe_select_alloc(alloc, ctx, state)
-    # else
-    #   {state, []}
-    # end
   end
 
   defp do_handle_connectivity_check(%{class: :response} = attrs, alloc_pid, ctx, state) do
@@ -540,7 +554,6 @@ defmodule Membrane.ICE.Endpoint do
          ctx,
          state
        ) do
-    # if state.selected_alloc != alloc.pid and state.in_ice_restart? do
     if state.selected_alloc != alloc.pid do
       select_alloc(alloc.pid, ctx, state)
     else
@@ -562,6 +575,8 @@ defmodule Membrane.ICE.Endpoint do
       if state.dtls? == false or state.handshake.status == :finished do
         case state do
           %{connection_ready_sent?: false, sdp_offer_arrived?: true} ->
+            state = stop_ice_restart_timer(state)
+
             {
               %{state | connection_ready_sent?: true},
               [notify: {:connection_ready, @stream_id, @component_id}]
@@ -597,6 +612,8 @@ defmodule Membrane.ICE.Endpoint do
           if state.handshake.status == :finished do
             case state do
               %{connection_ready_sent?: false, sdp_offer_arrived?: true} ->
+                state = stop_ice_restart_timer(state)
+
                 {
                   %{state | connection_ready_sent?: true},
                   [notify: {:connection_ready, @stream_id, @component_id}]
@@ -662,6 +679,7 @@ defmodule Membrane.ICE.Endpoint do
 
     {state, optional_actions} =
       if state.sdp_offer_arrived? do
+        state = stop_ice_restart_timer(state)
         {state, [notify: {:connection_ready, @stream_id, @component_id}]}
       else
         {%{state | pending_connection_ready?: true}, []}
@@ -691,4 +709,17 @@ defmodule Membrane.ICE.Endpoint do
       []
     end
   end
+
+  defp start_ice_restart_timer(state) do
+    timer_ref = Process.send_after(self(), :ice_restart_timeout, 10_000)
+    %{state | ice_restart_timer: timer_ref}
+  end
+
+  defp stop_ice_restart_timer(%{ice_restart_timer: timer_ref} = state)
+       when is_reference(timer_ref) do
+    Process.cancel_timer(timer_ref)
+    state
+  end
+
+  defp stop_ice_restart_timer(state), do: state
 end
