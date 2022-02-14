@@ -75,6 +75,7 @@ defmodule Membrane.ICE.Endpoint do
   @component_id 1
   @stream_id 1
   @time_between_keepalives 1000
+  @ice_restart_timeout 5_000
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
@@ -431,6 +432,7 @@ defmodule Membrane.ICE.Endpoint do
     Membrane.Logger.debug("ICE restart failed due to timeout")
 
     actions = [notify: {:connection_failed, @stream_id, @component_id}]
+    state = %{state | connection_ready_sent?: true}
     {{:ok, actions}, state}
   end
 
@@ -568,21 +570,7 @@ defmodule Membrane.ICE.Endpoint do
 
     {state, actions} =
       if state.dtls? == false or state.handshake.status == :finished do
-        case state do
-          %{connection_ready_sent?: false, sdp_offer_arrived?: true} ->
-            state = stop_ice_restart_timer(state)
-
-            {
-              %{state | connection_ready_sent?: true},
-              [notify: {:connection_ready, @stream_id, @component_id}]
-            }
-
-          %{connection_ready_sent?: false, sdp_offer_arrived?: false} ->
-            {%{state | pending_connection_ready?: true}, []}
-
-          %{} ->
-            {state, []}
-        end
+        maybe_send_connection_ready(state)
       else
         Membrane.Logger.debug("Checking for cached handshake packets")
 
@@ -605,21 +593,7 @@ defmodule Membrane.ICE.Endpoint do
 
         {state, actions} =
           if state.handshake.status == :finished do
-            case state do
-              %{connection_ready_sent?: false, sdp_offer_arrived?: true} ->
-                state = stop_ice_restart_timer(state)
-
-                {
-                  %{state | connection_ready_sent?: true},
-                  [notify: {:connection_ready, @stream_id, @component_id}]
-                }
-
-              %{connection_ready_sent?: false, sdp_offer_arrived?: false} ->
-                {%{state | pending_connection_ready?: true}, []}
-
-              %{} ->
-                {state, []}
-            end
+            maybe_send_connection_ready(state)
           else
             {state, []}
           end
@@ -671,14 +645,7 @@ defmodule Membrane.ICE.Endpoint do
     state = Map.put(state, :handshake, %{state: hsk_state, status: :finished, data: hsk_data})
 
     {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
-
-    {state, optional_actions} =
-      if state.sdp_offer_arrived? do
-        state = stop_ice_restart_timer(state)
-        {state, [notify: {:connection_ready, @stream_id, @component_id}]}
-      else
-        {%{state | pending_connection_ready?: true}, []}
-      end
+    {state, optional_actions} = maybe_send_connection_ready(state)
 
     {{:ok, optional_actions ++ actions}, state}
   end
@@ -706,7 +673,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp start_ice_restart_timer(state) do
-    timer_ref = Process.send_after(self(), :ice_restart_timeout, 10_000)
+    timer_ref = Process.send_after(self(), :ice_restart_timeout, @ice_restart_timeout)
     %{state | ice_restart_timer: timer_ref}
   end
 
@@ -717,4 +684,23 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp stop_ice_restart_timer(state), do: state
+
+  defp maybe_send_connection_ready(
+         %{connection_ready_sent?: false, sdp_offer_arrived?: true} = state
+       ) do
+    state =
+      %{state | connection_ready_sent?: true}
+      |> stop_ice_restart_timer()
+
+    actions = [notify: {:connection_ready, @stream_id, @component_id}]
+
+    {state, actions}
+  end
+
+  defp maybe_send_connection_ready(
+         %{connection_ready_sent?: false, sdp_offer_arrived?: false} = state
+       ),
+       do: {%{state | pending_connection_ready?: true}, []}
+
+  defp maybe_send_connection_ready(state), do: {state, []}
 end
