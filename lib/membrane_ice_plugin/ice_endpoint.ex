@@ -138,8 +138,7 @@ defmodule Membrane.ICE.Endpoint do
                 [
                   magic: nil,
                   in_nominated_pair: false,
-                  passed_check_from_browser: false,
-                  passed_check_from_sfu: false
+                  passed_check_from_browser: false
                 ]
   end
 
@@ -481,44 +480,11 @@ defmodule Membrane.ICE.Endpoint do
 
     alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
 
-    if not alloc.passed_check_from_sfu do
-      trid = Utils.generate_transaction_id()
-      new_username = String.split(attrs.username, ":") |> Enum.reverse() |> Enum.join(":")
-
-      Utils.send_binding_request(
-        alloc_pid,
-        state.remote_ice_pwd,
-        attrs.magic,
-        trid,
-        new_username,
-        attrs.priority
-      )
-
-      [
-        magic: attrs.magic,
-        transaction_id: trid,
-        username: new_username,
-        priority: attrs.priority,
-        ice_controlled: true
-      ]
-      |> then(&"Sending Binding Request with params: #{inspect(&1)}")
-      |> Membrane.Logger.debug()
-    end
-
     alloc =
       if attrs.use_candidate,
         do: %Allocation{alloc | in_nominated_pair: true},
         else: alloc
 
-    state = put_in(state, [:turn_allocs, alloc_pid], alloc)
-    maybe_select_alloc(alloc, ctx, state)
-  end
-
-  defp do_handle_connectivity_check(%{class: :response} = attrs, alloc_pid, ctx, state) do
-    log_debug_connectivity_check(attrs)
-
-    alloc = state.turn_allocs[alloc_pid]
-    alloc = %Allocation{alloc | passed_check_from_sfu: true}
     state = put_in(state, [:turn_allocs, alloc_pid], alloc)
     maybe_select_alloc(alloc, ctx, state)
   end
@@ -545,7 +511,6 @@ defmodule Membrane.ICE.Endpoint do
   defp maybe_select_alloc(
          %Allocation{
            passed_check_from_browser: true,
-           passed_check_from_sfu: true,
            in_nominated_pair: true
          } = alloc,
          ctx,

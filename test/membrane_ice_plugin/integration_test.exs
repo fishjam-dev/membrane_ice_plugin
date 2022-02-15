@@ -40,6 +40,7 @@ defmodule Membrane.ICE.IntegrationTest do
 
     msg = {:set_remote_credentials, "#{@remote_ice_ufrag} #{@remote_ice_pwd}"}
     Testing.Pipeline.message_child(pid, :ice, msg)
+    Testing.Pipeline.message_child(pid, :ice, :sdp_offer_arrived)
 
     trid = Utils.generate_transaction_id()
     username = "#{@remote_ice_ufrag}:#{local_ice_ufrag}"
@@ -68,32 +69,6 @@ defmodule Membrane.ICE.IntegrationTest do
     assert @magic == stun_msg[:magic]
     assert trid == stun_msg[:trid]
     assert username == stun_msg[:username]
-
-    username = "#{local_ice_ufrag}:#{@remote_ice_ufrag}"
-
-    assert_receive(
-      {:send_connectivity_check, stun_msg},
-      1000,
-      "ICE.Endpoint hasn't sent his own Binding Request"
-    )
-
-    assert :request == stun_msg[:class]
-    assert @magic == stun_msg[:magic]
-    assert username == stun_msg[:username]
-    assert stun_msg[:ice_controlled]
-    assert @remote_ice_pwd == stun_msg[:ice_pwd]
-
-    trid = stun_msg[:trid]
-
-    binding_success = [
-      class: :response,
-      magic: @magic,
-      trid: trid,
-      username: username
-    ]
-
-    msg = {:connectivity_check, binding_success, self()}
-    Testing.Pipeline.message_child(pid, :ice, msg)
 
     trid = Utils.generate_transaction_id()
     username = "#{@remote_ice_ufrag}:#{local_ice_ufrag}"
