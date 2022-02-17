@@ -1,6 +1,6 @@
 defmodule Membrane.ICE.Endpoint do
   @moduledoc """
-  Filter used for establishing ICE connection, sending and receiving messages.
+  Endpoint used for establishing ICE connection, sending and receiving messages.
 
   ### Architecture and pad semantic
   Both input and output pads are dynamic ones.
@@ -33,7 +33,7 @@ defmodule Membrane.ICE.Endpoint do
   - `{:new_candidate_full, candidate}`
     Triggered by: `:gather_candidates`
 
-  - `{:integrated_turn_servers, integrated_turn_servers}`
+  - `{:udp_integrated_turn, udp_integrated_turn}`
 
   - `{:handshake_init_data, component_id, handshake_init_data}`
 
@@ -51,8 +51,7 @@ defmodule Membrane.ICE.Endpoint do
   Data about integrated TURN servers set up by `Membrane.ICE.Endpoint`, passed to the parent via notification, should be
   forwarded to the second peer, that will try to establish ICE connection with `Membrane.ICE.Endpoint`. The second peer
   should have at least one allocation, in any of running integrated TURN servers (Firefox or Chrome will probably
-  have one allocation per TURN Server). Integrated TURN server sends message `{:alloc_created, alloc_pid}` after
-  creating a new allocation.
+  have one allocation per TURN Server)
 
   #### Performing ICE connectivity checks, selecting candidates pair
   All ICE candidates from the second peer, that are not relay candidates corresponded to allocations on integrated TURN
@@ -64,9 +63,10 @@ defmodule Membrane.ICE.Endpoint do
   After starting ICE or after every ICE restart, ICE Endpoint will pass all traffic and connectivity checks via
   allocation, which corresponds to the last selected ICE candidates pair.
   """
-  use Membrane.Filter
 
-  alias Membrane.ICE.{Utils, Handshake}
+  use Membrane.Endpoint
+
+  alias Membrane.ICE.{Utils, Handshake, CandidatePortAssigner}
   alias Membrane.Funnel
   alias __MODULE__.Allocation
 
@@ -74,7 +74,8 @@ defmodule Membrane.ICE.Endpoint do
 
   @component_id 1
   @stream_id 1
-  @fake_candidate_port 41847
+  @time_between_keepalives 1_000_000_000
+  @ice_restart_timeout 5_000
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
@@ -137,73 +138,100 @@ defmodule Membrane.ICE.Endpoint do
                 [
                   magic: nil,
                   in_nominated_pair: false,
-                  passed_check_from_browser: false,
-                  passed_check_from_sfu: false
+                  passed_check_from_browser: false
                 ]
   end
 
   @impl true
   def handle_init(options) do
     %__MODULE__{
-      ice_lite?: ice_lite?,
       integrated_turn_options: integrated_turn_options,
       dtls?: dtls?,
       handshake_opts: hsk_opts
     } = options
 
-    if ice_lite?, do: Process.send_after(self(), :maybe_send_binding_indication, 1000)
+    state = %{
+      id: to_string(Enum.map(1..10, fn _ -> Enum.random(?a..?z) end)),
+      turn_allocs: %{},
+      integrated_turn_options: integrated_turn_options,
+      fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
+      selected_alloc: nil,
+      dtls?: dtls?,
+      hsk_opts: hsk_opts,
+      component_connected?: false,
+      cached_hsk_packets: nil,
+      component_ready?: false,
+      pending_connection_ready?: false,
+      connection_status_sent?: false,
+      sdp_offer_arrived?: false,
+      ice_restart_timer: nil
+    }
 
-    {:ok,
-     %{
-       turn_allocs: %{},
-       integrated_turn_options: integrated_turn_options,
-       fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
-       selected_alloc: nil,
-       dtls?: dtls?,
-       hsk_opts: hsk_opts,
-       component_connected?: false,
-       cached_hsk_packets: nil,
-       component_ready?: false
-     }}
+    {:ok, state}
   end
 
   @impl true
   def handle_prepared_to_playing(_ctx, %{dtls?: true} = state) do
-    {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
-    {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(dtls)
-    hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
-    ice_ufrag = Utils.generate_ice_ufrag()
-    ice_pwd = Utils.generate_ice_pwd()
-    integrated_turn_servers = start_integrated_turn_servers(state.integrated_turn_options)
+    with {:ok, candidate_port} <- CandidatePortAssigner.assign_candidate_port() do
+      {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
+      {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(dtls)
+      hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
+      ice_ufrag = Utils.generate_ice_ufrag()
+      ice_pwd = Utils.generate_ice_pwd()
 
-    state =
-      Map.merge(state, %{
-        integrated_turn_servers: Map.new(integrated_turn_servers, &{&1.pid, &1}),
-        local_ice_pwd: ice_pwd,
-        handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
-      })
+      [udp_integrated_turn] =
+        Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options, parent: self())
 
-    actions = [
-      notify: {:integrated_turn_servers, integrated_turn_servers},
-      notify: {:handshake_init_data, @component_id, fingerprint},
-      notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
-    ]
+      state =
+        Map.merge(state, %{
+          candidate_port: candidate_port,
+          udp_integrated_turn: udp_integrated_turn,
+          local_ice_pwd: ice_pwd,
+          handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
+        })
+        |> start_ice_restart_timer()
 
-    {{:ok, actions}, state}
+      actions = [
+        start_timer: {:keepalive_timer, @time_between_keepalives},
+        notify: {:udp_integrated_turn, udp_integrated_turn},
+        notify: {:handshake_init_data, @component_id, fingerprint},
+        notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+      ]
+
+      {{:ok, actions}, state}
+    else
+      {:error, :no_free_candidate_port} = err ->
+        {err, state}
+    end
   end
 
   @impl true
   def handle_prepared_to_playing(_ctx, state) do
-    ice_ufrag = Utils.generate_ice_ufrag()
-    ice_pwd = Utils.generate_ice_pwd()
-    state = Map.put(state, :local_ice_pwd, ice_pwd)
+    with {:ok, candidate_port} <- CandidatePortAssigner.assign_candidate_port() do
+      ice_ufrag = Utils.generate_ice_ufrag()
+      ice_pwd = Utils.generate_ice_pwd()
 
-    actions = [
-      notify: {:handshake_init_data, @component_id, nil},
-      notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
-    ]
+      [udp_integrated_turn] =
+        Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options, parent: self())
 
-    {{:ok, actions}, state}
+      state =
+        Map.merge(state, %{
+          candidate_port: candidate_port,
+          udp_integrated_turn: udp_integrated_turn,
+          local_ice_pwd: ice_pwd
+        })
+
+      actions = [
+        notify: {:udp_integrated_turn, udp_integrated_turn},
+        notify: {:handshake_init_data, @component_id, nil},
+        notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+      ]
+
+      {{:ok, actions}, state}
+    else
+      {:error, :no_free_candidate_port} = err ->
+        {err, state}
+    end
   end
 
   @impl true
@@ -227,7 +255,7 @@ defmodule Membrane.ICE.Endpoint do
     do: {:ok, state}
 
   @impl true
-  def handle_process(
+  def handle_write(
         Pad.ref(:input, @component_id) = pad,
         %Membrane.Buffer{payload: payload},
         _ctx,
@@ -253,22 +281,58 @@ defmodule Membrane.ICE.Endpoint do
   def handle_event(_pad, _event, _ctx, state), do: {:ok, state}
 
   @impl true
-  def handle_caps(_pad, _caps, _ctx, state), do: {:ok, state}
+  def handle_tick(:keepalive_timer, _ctx, state) do
+    with %{selected_alloc: alloc_pid} when is_pid(alloc_pid) <- state,
+         %{^alloc_pid => %{magic: magic}} when magic != nil <- state.turn_allocs do
+      tr_id = Utils.generate_transaction_id()
+      Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
+
+      Membrane.Logger.debug(
+        "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
+      )
+    end
+
+    {:ok, state}
+  end
 
   @impl true
   def handle_other(:gather_candidates, _ctx, state) do
     msg = {
       :new_candidate_full,
-      Utils.generate_fake_ice_candidate({state.fake_candidate_ip, @fake_candidate_port})
+      Utils.generate_fake_ice_candidate({state.fake_candidate_ip, state.candidate_port})
     }
 
     {{:ok, notify: msg}, state}
   end
 
   @impl true
+  def handle_other({:set_remote_credentials, credentials}, _ctx, state)
+      when state.pending_connection_ready? do
+    [_ice_ufrag, ice_pwd] = String.split(credentials)
+
+    state =
+      Map.merge(state, %{
+        remote_ice_pwd: ice_pwd,
+        sdp_offer_arrived?: true,
+        connection_status_sent?: true,
+        pending_connection_ready?: false
+      })
+      |> stop_ice_restart_timer()
+
+    actions = [notify: {:connection_ready, @stream_id, @component_id}]
+    {{:ok, actions}, state}
+  end
+
+  @impl true
   def handle_other({:set_remote_credentials, credentials}, _ctx, state) do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
-    state = Map.put(state, :remote_ice_pwd, ice_pwd)
+
+    state =
+      Map.merge(state, %{
+        remote_ice_pwd: ice_pwd,
+        sdp_offer_arrived?: true
+      })
+
     {:ok, state}
   end
 
@@ -277,7 +341,14 @@ defmodule Membrane.ICE.Endpoint do
     ice_ufrag = Utils.generate_ice_ufrag()
     ice_pwd = Utils.generate_ice_pwd()
 
-    state = Map.put(state, :local_ice_pwd, ice_pwd)
+    state =
+      Map.merge(state, %{
+        local_ice_pwd: ice_pwd,
+        connection_status_sent?: false,
+        sdp_offer_arrived?: false
+      })
+      |> start_ice_restart_timer()
+
     credentials = "#{ice_ufrag} #{ice_pwd}"
     {{:ok, notify: {:local_credentials, credentials}}, state}
   end
@@ -294,13 +365,6 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other({:alloc_created, alloc_pid}, _ctx, state) do
-    Membrane.Logger.debug("Creating allocation with pid #{inspect(alloc_pid)}")
-    state = put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
-    {:ok, state}
-  end
-
-  @impl true
   def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
@@ -313,24 +377,19 @@ defmodule Membrane.ICE.Endpoint do
         ctx,
         state
       ) do
+    state =
+      if Map.has_key?(state.turn_allocs, alloc_pid) do
+        state
+      else
+        Membrane.Logger.debug(
+          "First connectivity check arrived from allocation with pid #{inspect(alloc_pid)}"
+        )
+
+        put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
+      end
+
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {{:ok, actions}, state}
-  end
-
-  @impl true
-  def handle_other(:maybe_send_binding_indication, _ctx, state) do
-    with %{selected_alloc: alloc_pid} when is_pid(alloc_pid) <- state,
-         %{^alloc_pid => %{magic: magic}} when magic != nil <- state.turn_allocs do
-      tr_id = Utils.generate_transaction_id()
-      Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
-
-      Membrane.Logger.debug(
-        "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
-      )
-    end
-
-    Process.send_after(self(), :maybe_send_binding_indication, 1000)
-    {:ok, state}
   end
 
   @impl true
@@ -366,14 +425,22 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
+  def handle_other(:ice_restart_timeout, _ctx, state) do
+    Membrane.Logger.debug("ICE restart failed due to timeout")
+
+    state = %{state | connection_status_sent?: true, pending_connection_ready?: false}
+    actions = [notify: {:connection_failed, @stream_id, @component_id}]
+    {{:ok, actions}, state}
+  end
+
+  @impl true
   def handle_other(msg, _ctx, state), do: {{:ok, notify: msg}, state}
 
   @impl true
   def handle_shutdown(_reason, state) do
-    Enum.each(
-      state.integrated_turn_servers,
-      fn {_pid, turn} -> Utils.stop_integrated_turn(turn) end
-    )
+    with %{udp_integrated_turn: turn} <- state do
+      Utils.stop_integrated_turn(turn)
+    end
 
     :ok
   end
@@ -390,73 +457,6 @@ defmodule Membrane.ICE.Endpoint do
           else: []
 
     {state, actions}
-  end
-
-  defp start_integrated_turn_servers(options) when is_list(options) do
-    Map.new(options)
-    |> start_integrated_turn_servers()
-  end
-
-  defp start_integrated_turn_servers(options) do
-    ip = options[:ip] || {0, 0, 0, 0}
-    mock_ip = options[:mock_ip] || ip
-    {min_port, max_port} = options[:ports_range] || {50_000, 59_999}
-    medium = trunc((min_port + max_port) / 2)
-
-    client_port_range = {min_port, medium}
-
-    alloc_port_range =
-      if medium == max_port,
-        do: {medium, max_port},
-        else: {medium + 1, max_port}
-
-    turn_types =
-      if is_binary(options[:cert_file]),
-        do: [:udp, :tcp, :tls],
-        else: [:udp, :tcp]
-
-    turns =
-      turn_types
-      |> Enum.map(fn transport ->
-        secret = Utils.generate_secret()
-
-        {:ok, port, pid} =
-          Utils.start_integrated_turn(
-            secret,
-            [
-              client_port_range: client_port_range,
-              alloc_port_range: alloc_port_range,
-              ip: ip,
-              mock_ip: mock_ip,
-              transport: transport,
-              parent: self(),
-              fake_candidate_addr: {mock_ip, @fake_candidate_port}
-            ] ++
-              if(transport == :tls,
-                do: [certfile: options[:cert_file]],
-                else: []
-              )
-          )
-
-        %{
-          relay_type: transport,
-          secret: secret,
-          server_addr: ip,
-          mocked_server_addr: mock_ip,
-          server_port: port,
-          pid: pid
-        }
-      end)
-
-    Enum.each(turns, fn turn ->
-      addr = Tuple.to_list(turn.server_addr) |> Enum.join(".")
-
-      Membrane.Logger.debug(
-        "Starting #{turn.relay_type} TURN Server at #{inspect(addr)}:#{turn.server_port}"
-      )
-    end)
-
-    turns
   end
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
@@ -478,30 +478,6 @@ defmodule Membrane.ICE.Endpoint do
 
     alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
 
-    if not alloc.passed_check_from_sfu do
-      trid = Utils.generate_transaction_id()
-      new_username = String.split(attrs.username, ":") |> Enum.reverse() |> Enum.join(":")
-
-      Utils.send_binding_request(
-        alloc_pid,
-        state.remote_ice_pwd,
-        attrs.magic,
-        trid,
-        new_username,
-        attrs.priority
-      )
-
-      [
-        magic: attrs.magic,
-        transaction_id: trid,
-        username: new_username,
-        priority: attrs.priority,
-        ice_controlled: true
-      ]
-      |> then(&"Sending Binding Request with params: #{inspect(&1)}")
-      |> Membrane.Logger.debug()
-    end
-
     alloc =
       if attrs.use_candidate,
         do: %Allocation{alloc | in_nominated_pair: true},
@@ -511,18 +487,8 @@ defmodule Membrane.ICE.Endpoint do
     maybe_select_alloc(alloc, ctx, state)
   end
 
-  defp do_handle_connectivity_check(%{class: :response} = attrs, alloc_pid, ctx, state) do
+  defp do_handle_connectivity_check(attrs, _alloc_pid, _ctx, state) do
     log_debug_connectivity_check(attrs)
-
-    alloc = state.turn_allocs[alloc_pid]
-    alloc = %Allocation{alloc | passed_check_from_sfu: true}
-    state = put_in(state, [:turn_allocs, alloc_pid], alloc)
-    maybe_select_alloc(alloc, ctx, state)
-  end
-
-  defp do_handle_connectivity_check(%{class: :error} = attrs, _, _, state) do
-    log_debug_connectivity_check(attrs)
-
     {state, []}
   end
 
@@ -543,7 +509,6 @@ defmodule Membrane.ICE.Endpoint do
   defp maybe_select_alloc(
          %Allocation{
            passed_check_from_browser: true,
-           passed_check_from_sfu: true,
            in_nominated_pair: true
          } = alloc,
          ctx,
@@ -568,7 +533,7 @@ defmodule Membrane.ICE.Endpoint do
 
     {state, actions} =
       if state.dtls? == false or state.handshake.status == :finished do
-        {state, [notify: {:connection_ready, @stream_id, @component_id}]}
+        maybe_send_connection_ready(state)
       else
         Membrane.Logger.debug("Checking for cached handshake packets")
 
@@ -589,7 +554,14 @@ defmodule Membrane.ICE.Endpoint do
           _state -> :ok
         end
 
-        {%{state | cached_hsk_packets: nil}, []}
+        {state, actions} =
+          if state.handshake.status == :finished do
+            maybe_send_connection_ready(state)
+          else
+            {state, []}
+          end
+
+        {%{state | cached_hsk_packets: nil}, actions}
       end
 
     {state, demand_actions} = handle_component_state_ready(ctx, state)
@@ -636,14 +608,9 @@ defmodule Membrane.ICE.Endpoint do
     state = Map.put(state, :handshake, %{state: hsk_state, status: :finished, data: hsk_data})
 
     {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
+    {state, optional_actions} = maybe_send_connection_ready(state)
 
-    actions =
-      actions ++
-        if state.component_connected?,
-          do: [notify: {:connection_ready, @stream_id, @component_id}],
-          else: []
-
-    {{:ok, actions}, state}
+    {{:ok, optional_actions ++ actions}, state}
   end
 
   defp handle_component_state_ready(ctx, state) do
@@ -667,4 +634,36 @@ defmodule Membrane.ICE.Endpoint do
       []
     end
   end
+
+  defp start_ice_restart_timer(state) do
+    timer_ref = Process.send_after(self(), :ice_restart_timeout, @ice_restart_timeout)
+    %{state | ice_restart_timer: timer_ref}
+  end
+
+  defp stop_ice_restart_timer(%{ice_restart_timer: timer_ref} = state)
+       when is_reference(timer_ref) do
+    Process.cancel_timer(timer_ref)
+    state
+  end
+
+  defp stop_ice_restart_timer(state), do: state
+
+  defp maybe_send_connection_ready(
+         %{connection_status_sent?: false, sdp_offer_arrived?: true} = state
+       ) do
+    state =
+      %{state | connection_status_sent?: true}
+      |> stop_ice_restart_timer()
+
+    actions = [notify: {:connection_ready, @stream_id, @component_id}]
+
+    {state, actions}
+  end
+
+  defp maybe_send_connection_ready(
+         %{connection_status_sent?: false, sdp_offer_arrived?: false} = state
+       ),
+       do: {%{state | pending_connection_ready?: true}, []}
+
+  defp maybe_send_connection_ready(state), do: {state, []}
 end

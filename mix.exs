@@ -27,6 +27,7 @@ defmodule Membrane.ICE.Mixfile do
 
   def application do
     [
+      mod: {Membrane.ICE.Application, []},
       extra_applications: []
     ]
   end
@@ -36,11 +37,13 @@ defmodule Membrane.ICE.Mixfile do
 
   defp deps do
     [
-      {:membrane_core, "~> 0.8.1"},
+      {:membrane_core, "~> 0.9.0", override: true},
       {:bunch, "~> 1.3.0"},
       {:fake_turn, github: "membraneframework/fake_turn"},
       {:ex_dtls, "~> 0.8.0"},
-      {:membrane_funnel_plugin, "~> 0.4.0"},
+      # {:membrane_funnel_plugin, "~> 0.4.0"},
+      {:membrane_funnel_plugin,
+       github: "membraneframework/membrane_funnel_plugin", tag: "v0.5.0-rc0", override: true},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6.1", only: :dev, runtime: false}
