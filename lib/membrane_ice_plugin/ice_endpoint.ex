@@ -74,7 +74,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @component_id 1
   @stream_id 1
-  @time_between_keepalives 1000
+  @time_between_keepalives 1_000_000_000
   @ice_restart_timeout 5_000
 
   @typedoc """
@@ -150,26 +150,22 @@ defmodule Membrane.ICE.Endpoint do
       handshake_opts: hsk_opts
     } = options
 
-    Process.send_after(self(), :maybe_send_keepalive, @time_between_keepalives)
-
-    state =
-      %{
-        id: to_string(Enum.map(1..10, fn _ -> Enum.random(?a..?z) end)),
-        turn_allocs: %{},
-        integrated_turn_options: integrated_turn_options,
-        fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
-        selected_alloc: nil,
-        dtls?: dtls?,
-        hsk_opts: hsk_opts,
-        component_connected?: false,
-        cached_hsk_packets: nil,
-        component_ready?: false,
-        pending_connection_ready?: false,
-        connection_status_sent?: false,
-        sdp_offer_arrived?: false,
-        ice_restart_timer: nil
-      }
-      |> start_ice_restart_timer()
+    state = %{
+      id: to_string(Enum.map(1..10, fn _ -> Enum.random(?a..?z) end)),
+      turn_allocs: %{},
+      integrated_turn_options: integrated_turn_options,
+      fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
+      selected_alloc: nil,
+      dtls?: dtls?,
+      hsk_opts: hsk_opts,
+      component_connected?: false,
+      cached_hsk_packets: nil,
+      component_ready?: false,
+      pending_connection_ready?: false,
+      connection_status_sent?: false,
+      sdp_offer_arrived?: false,
+      ice_restart_timer: nil
+    }
 
     {:ok, state}
   end
@@ -193,8 +189,10 @@ defmodule Membrane.ICE.Endpoint do
           local_ice_pwd: ice_pwd,
           handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
         })
+        |> start_ice_restart_timer()
 
       actions = [
+        start_timer: {:keepalive_timer, @time_between_keepalives},
         notify: {:udp_integrated_turn, udp_integrated_turn},
         notify: {:handshake_init_data, @component_id, fingerprint},
         notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
@@ -286,6 +284,21 @@ defmodule Membrane.ICE.Endpoint do
   def handle_caps(_pad, _caps, _context, state), do: {:ok, state}
 
   @impl true
+  def handle_tick(:keepalive_timer, _ctx, state) do
+    with %{selected_alloc: alloc_pid} when is_pid(alloc_pid) <- state,
+         %{^alloc_pid => %{magic: magic}} when magic != nil <- state.turn_allocs do
+      tr_id = Utils.generate_transaction_id()
+      Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
+
+      Membrane.Logger.debug(
+        "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
+      )
+    end
+
+    {:ok, state}
+  end
+
+  @impl true
   def handle_other(:gather_candidates, _ctx, state) do
     msg = {
       :new_candidate_full,
@@ -296,29 +309,33 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other(:sdp_offer_arrived, _ctx, state) when state.pending_connection_ready? do
-    state = %{
-      state
-      | sdp_offer_arrived?: true,
+  def handle_other({:set_remote_credentials, credentials}, _ctx, state)
+      when state.pending_connection_ready? do
+    [_ice_ufrag, ice_pwd] = String.split(credentials)
+
+    state =
+      Map.merge(state, %{
+        remote_ice_pwd: ice_pwd,
+        sdp_offer_arrived?: true,
         connection_status_sent?: true,
         pending_connection_ready?: false
-    }
+      })
+      |> stop_ice_restart_timer()
 
-    state = stop_ice_restart_timer(state)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
     {{:ok, actions}, state}
   end
 
   @impl true
-  def handle_other(:sdp_offer_arrived, _ctx, state) do
-    state = %{state | sdp_offer_arrived?: true}
-    {:ok, state}
-  end
-
-  @impl true
   def handle_other({:set_remote_credentials, credentials}, _ctx, state) do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
-    state = Map.put(state, :remote_ice_pwd, ice_pwd)
+
+    state =
+      Map.merge(state, %{
+        remote_ice_pwd: ice_pwd,
+        sdp_offer_arrived?: true
+      })
+
     {:ok, state}
   end
 
@@ -379,22 +396,6 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other(:maybe_send_keepalive, _ctx, state) do
-    with %{selected_alloc: alloc_pid} when is_pid(alloc_pid) <- state,
-         %{^alloc_pid => %{magic: magic}} when magic != nil <- state.turn_allocs do
-      tr_id = Utils.generate_transaction_id()
-      Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
-
-      Membrane.Logger.debug(
-        "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
-      )
-    end
-
-    Process.send_after(self(), :maybe_send_keepalive, @time_between_keepalives)
-    {:ok, state}
-  end
-
-  @impl true
   def handle_other({:ice_payload, payload}, ctx, state) do
     if state.dtls? and Utils.is_dtls_hsk_packet(payload) do
       ExDTLS.process(state.handshake.state.dtls, payload)
@@ -430,8 +431,8 @@ defmodule Membrane.ICE.Endpoint do
   def handle_other(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
 
+    state = %{state | connection_status_sent?: true, pending_connection_ready?: false}
     actions = [notify: {:connection_failed, @stream_id, @component_id}]
-    state = %{state | connection_status_sent?: true}
     {{:ok, actions}, state}
   end
 
