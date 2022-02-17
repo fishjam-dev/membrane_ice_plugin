@@ -64,7 +64,7 @@ defmodule Membrane.ICE.Endpoint do
   allocation, which corresponds to the last selected ICE candidates pair.
   """
 
-  use Membrane.Filter
+  use Membrane.Endpoint
 
   alias Membrane.ICE.{Utils, Handshake, CandidatePortAssigner}
   alias Membrane.Funnel
@@ -255,7 +255,7 @@ defmodule Membrane.ICE.Endpoint do
     do: {:ok, state}
 
   @impl true
-  def handle_process(
+  def handle_write(
         Pad.ref(:input, @component_id) = pad,
         %Membrane.Buffer{payload: payload},
         _ctx,
@@ -279,9 +279,6 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_event(_pad, _event, _ctx, state), do: {:ok, state}
-
-  @impl true
-  def handle_caps(_pad, _caps, _context, state), do: {:ok, state}
 
   @impl true
   def handle_tick(:keepalive_timer, _ctx, state) do
