@@ -306,6 +306,15 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
+  def handle_other(:no_sdp_offer, _ctx, state) do
+    state =
+      %{state | connection_status_sent?: true, pending_connection_ready?: false}
+      |> stop_ice_restart_timer()
+
+    {:ok, state}
+  end
+
+  @impl true
   def handle_other({:set_remote_credentials, credentials}, _ctx, state)
       when state.pending_connection_ready? do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
