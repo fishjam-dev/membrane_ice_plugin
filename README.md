@@ -24,9 +24,7 @@ end
 
 ## Usage
 
-See [example_project] for example usage or refer to
-[hex.pm](https://hex.pm/packages/membrane_ice_plugin) for more details about how to interact with
-Sink and Source.
+See `Membrane.WebRTC.EndpointBin` in [membrane_webrtc_plugin](https://hex.pm/packages/membrane_webrtc_plugin) for usage example
 
 ## Copyright and License
 
