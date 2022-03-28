@@ -1,7 +1,7 @@
 defmodule Membrane.ICE.Mixfile do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.9.0"
   @github_url "https://github.com/membraneframework/membrane_ice_plugin"
 
   def project do
@@ -39,7 +39,7 @@ defmodule Membrane.ICE.Mixfile do
     [
       {:membrane_core, "~> 0.9.0", override: true},
       {:bunch, "~> 1.3.0"},
-      {:fake_turn, github: "membraneframework/fake_turn"},
+      {:fake_turn, "~> 0.2.0"},
       {:ex_dtls, "~> 0.8.0"},
       # {:membrane_funnel_plugin, "~> 0.4.0"},
       {:membrane_funnel_plugin,
