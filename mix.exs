@@ -41,9 +41,7 @@ defmodule Membrane.ICE.Mixfile do
       {:bunch, "~> 1.3.0"},
       {:fake_turn, "~> 0.2.0"},
       {:ex_dtls, "~> 0.8.0"},
-      # {:membrane_funnel_plugin, "~> 0.4.0"},
-      {:membrane_funnel_plugin,
-       github: "membraneframework/membrane_funnel_plugin", tag: "v0.5.0-rc0", override: true},
+      {:membrane_funnel_plugin, "~> 0.5.0"},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6.1", only: :dev, runtime: false}
