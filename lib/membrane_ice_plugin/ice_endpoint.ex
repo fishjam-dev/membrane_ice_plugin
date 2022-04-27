@@ -66,8 +66,9 @@ defmodule Membrane.ICE.Endpoint do
 
   use Membrane.Endpoint
 
-  alias Membrane.ICE.{Utils, Handshake, CandidatePortAssigner}
+  alias Membrane.ICE.{Utils, CandidatePortAssigner}
   alias Membrane.Funnel
+  alias Membrane.SRTP
   alias __MODULE__.Allocation
 
   require Membrane.Logger
@@ -246,7 +247,7 @@ defmodule Membrane.ICE.Endpoint do
         _ctx,
         %{dtls?: true, handshake: %{finished?: true}} = state
       ) do
-    event = %Handshake.Event{handshake_data: state.handshake.data}
+    event = to_srtp_keying_material_event(state.handshake.data)
     {{:ok, event: {pad, event}}, state}
   end
 
@@ -273,8 +274,8 @@ defmodule Membrane.ICE.Endpoint do
         _ctx,
         %{dtls?: true, handshake: %{finished?: true}} = state
       ) do
-    event = {pad, %Handshake.Event{handshake_data: state.handshake.data}}
-    {{:ok, event: event}, state}
+    event = to_srtp_keying_material_event(state.handshake.data)
+    {{:ok, event: {pad, event}}, state}
   end
 
   @impl true
@@ -453,7 +454,7 @@ defmodule Membrane.ICE.Endpoint do
     actions =
       maybe_send_demands_actions(ctx, state) ++
         if Map.has_key?(ctx.pads, pad),
-          do: [event: {pad, %Handshake.Event{handshake_data: hsk_data}}],
+          do: [event: {pad, to_srtp_keying_material_event(hsk_data)}],
           else: []
 
     {state, actions}
@@ -628,7 +629,7 @@ defmodule Membrane.ICE.Endpoint do
 
       [
         demand: pad,
-        event: {pad, %Handshake.Event{handshake_data: hsk_data}}
+        event: {pad, to_srtp_keying_material_event(hsk_data)}
       ]
     else
       []
@@ -666,4 +667,14 @@ defmodule Membrane.ICE.Endpoint do
        do: {%{state | pending_connection_ready?: true}, []}
 
   defp maybe_send_connection_ready(state), do: {state, []}
+
+  defp to_srtp_keying_material_event(handshake_data) do
+    {local_keying_material, remote_keying_material, protection_profile} = handshake_data
+
+    %SRTP.KeyingMaterial.Event{
+      local_keying_material: local_keying_material,
+      remote_keying_material: remote_keying_material,
+      protection_profile: protection_profile
+    }
+  end
 end
