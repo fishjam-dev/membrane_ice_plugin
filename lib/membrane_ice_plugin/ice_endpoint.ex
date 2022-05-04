@@ -188,7 +188,7 @@ defmodule Membrane.ICE.Endpoint do
           candidate_port: candidate_port,
           udp_integrated_turn: udp_integrated_turn,
           local_ice_pwd: ice_pwd,
-          handshake: %{state: hsk_state, status: :in_progress, data: nil}
+          handshake: %{state: hsk_state, status: :in_progress, keying_material_event: nil}
         })
         |> start_ice_restart_timer()
 
@@ -247,8 +247,7 @@ defmodule Membrane.ICE.Endpoint do
         _ctx,
         %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    event = to_srtp_keying_material_event(state.handshake.data)
-    {{:ok, event: {pad, event}}, state}
+    {{:ok, event: {pad, state.handshake.keying_material_event}}, state}
   end
 
   @impl true
@@ -274,8 +273,7 @@ defmodule Membrane.ICE.Endpoint do
         _ctx,
         %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    event = to_srtp_keying_material_event(state.handshake.data)
-    {{:ok, event: {pad, event}}, state}
+    {{:ok, event: {pad, state.handshake.keying_material_event}}, state}
   end
 
   @impl true
@@ -586,7 +584,14 @@ defmodule Membrane.ICE.Endpoint do
 
   defp handle_end_of_hsk(hsk_data, ctx, state) do
     hsk_state = state.handshake.state
-    state = Map.put(state, :handshake, %{state: hsk_state, status: :finished, data: hsk_data})
+    event = to_srtp_keying_material_event(hsk_data)
+
+    state =
+      Map.put(state, :handshake, %{
+        state: hsk_state,
+        status: :finished,
+        keying_material_event: event
+      })
 
     {state, connection_ready_actions} = maybe_send_connection_ready(state)
     actions = connection_ready_actions ++ maybe_send_demands_actions(ctx, state)
@@ -605,12 +610,8 @@ defmodule Membrane.ICE.Endpoint do
     # if something is linked, component is ready and handshake is done then send demands
     if Map.has_key?(ctx.pads, pad) and state.component_ready? and
          state.handshake.status == :finished do
-      hsk_data = if state.dtls?, do: state.handshake.data, else: nil
-
-      [
-        demand: pad,
-        event: {pad, to_srtp_keying_material_event(hsk_data)}
-      ]
+      event = if state.dtls?, do: [event: {pad, state.handshake.keying_material_event}], else: []
+      [demand: pad] ++ event
     else
       []
     end
