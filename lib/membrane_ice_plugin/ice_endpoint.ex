@@ -440,18 +440,6 @@ defmodule Membrane.ICE.Endpoint do
     :ok
   end
 
-  defp handle_handshake_finished(hsk_data, ctx, state) do
-    pad = Pad.ref(:output, @component_id)
-
-    actions =
-      maybe_send_demands_actions(ctx, state) ++
-        if Map.has_key?(ctx.pads, pad),
-          do: [event: {pad, to_srtp_keying_material_event(hsk_data)}],
-          else: []
-
-    {state, actions}
-  end
-
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
@@ -600,10 +588,10 @@ defmodule Membrane.ICE.Endpoint do
     hsk_state = state.handshake.state
     state = Map.put(state, :handshake, %{state: hsk_state, status: :finished, data: hsk_data})
 
-    {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
-    {state, optional_actions} = maybe_send_connection_ready(state)
+    {state, connection_ready_actions} = maybe_send_connection_ready(state)
+    actions = connection_ready_actions ++ maybe_send_demands_actions(ctx, state)
 
-    {{:ok, optional_actions ++ actions}, state}
+    {{:ok, actions}, state}
   end
 
   defp handle_component_state_ready(ctx, state) do
