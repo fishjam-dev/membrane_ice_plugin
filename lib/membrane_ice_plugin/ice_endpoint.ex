@@ -594,7 +594,11 @@ defmodule Membrane.ICE.Endpoint do
       })
 
     {state, connection_ready_actions} = maybe_send_connection_ready(state)
-    actions = connection_ready_actions ++ maybe_send_demands_actions(ctx, state)
+
+    actions =
+      connection_ready_actions ++
+        maybe_send_demands_actions(ctx, state) ++
+        maybe_send_keying_material_to_output(ctx, state)
 
     {{:ok, actions}, state}
   end
@@ -611,10 +615,18 @@ defmodule Membrane.ICE.Endpoint do
     if Map.has_key?(ctx.pads, pad) and state.component_ready? and
          state.handshake.status == :finished do
       event = if state.dtls?, do: [event: {pad, state.handshake.keying_material_event}], else: []
-      [demand: pad] ++ event
+      event ++ [demand: pad]
     else
       []
     end
+  end
+
+  defp maybe_send_keying_material_to_output(ctx, state) do
+    pad = Pad.ref(:output, @component_id)
+
+    if Map.has_key?(ctx.pads, pad),
+      do: [event: {pad, state.handshake.keying_material_event}],
+      else: []
   end
 
   defp start_ice_restart_timer(state) do
