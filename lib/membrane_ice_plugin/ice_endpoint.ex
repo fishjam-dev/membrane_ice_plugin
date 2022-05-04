@@ -66,8 +66,9 @@ defmodule Membrane.ICE.Endpoint do
 
   use Membrane.Endpoint
 
-  alias Membrane.ICE.{Utils, Handshake, CandidatePortAssigner}
+  alias Membrane.ICE.{Utils, CandidatePortAssigner}
   alias Membrane.Funnel
+  alias Membrane.SRTP
   alias __MODULE__.Allocation
 
   require Membrane.Logger
@@ -187,7 +188,7 @@ defmodule Membrane.ICE.Endpoint do
           candidate_port: candidate_port,
           udp_integrated_turn: udp_integrated_turn,
           local_ice_pwd: ice_pwd,
-          handshake: %{state: hsk_state, status: :in_progress, data: nil, finished?: false}
+          handshake: %{state: hsk_state, status: :in_progress, keying_material_event: nil}
         })
         |> start_ice_restart_timer()
 
@@ -244,10 +245,9 @@ defmodule Membrane.ICE.Endpoint do
   def handle_pad_added(
         Pad.ref(:output, @component_id) = pad,
         _ctx,
-        %{dtls?: true, handshake: %{finished?: true}} = state
+        %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    event = %Handshake.Event{handshake_data: state.handshake.data}
-    {{:ok, event: {pad, event}}, state}
+    {{:ok, event: {pad, state.handshake.keying_material_event}}, state}
   end
 
   @impl true
@@ -271,10 +271,9 @@ defmodule Membrane.ICE.Endpoint do
         Pad.ref(:input, @component_id) = pad,
         %Funnel.NewInputEvent{},
         _ctx,
-        %{dtls?: true, handshake: %{finished?: true}} = state
+        %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    event = {pad, %Handshake.Event{handshake_data: state.handshake.data}}
-    {{:ok, event: event}, state}
+    {{:ok, event: {pad, state.handshake.keying_material_event}}, state}
   end
 
   @impl true
@@ -359,12 +358,6 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other({:hsk_finished, @component_id, hsk_data}, ctx, state) do
-    {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
-    {{:ok, actions}, state}
-  end
-
-  @impl true
   def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
@@ -443,20 +436,6 @@ defmodule Membrane.ICE.Endpoint do
     end
 
     :ok
-  end
-
-  defp handle_handshake_finished(hsk_data, ctx, state) do
-    pad = Pad.ref(:output, @component_id)
-
-    state = put_in(state, [:handshake, :finished?], true)
-
-    actions =
-      maybe_send_demands_actions(ctx, state) ++
-        if Map.has_key?(ctx.pads, pad),
-          do: [event: {pad, %Handshake.Event{handshake_data: hsk_data}}],
-          else: []
-
-    {state, actions}
   end
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
@@ -605,12 +584,23 @@ defmodule Membrane.ICE.Endpoint do
 
   defp handle_end_of_hsk(hsk_data, ctx, state) do
     hsk_state = state.handshake.state
-    state = Map.put(state, :handshake, %{state: hsk_state, status: :finished, data: hsk_data})
+    event = to_srtp_keying_material_event(hsk_data)
 
-    {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
-    {state, optional_actions} = maybe_send_connection_ready(state)
+    state =
+      Map.put(state, :handshake, %{
+        state: hsk_state,
+        status: :finished,
+        keying_material_event: event
+      })
 
-    {{:ok, optional_actions ++ actions}, state}
+    {state, connection_ready_actions} = maybe_send_connection_ready(state)
+
+    actions =
+      connection_ready_actions ++
+        maybe_send_demands_actions(ctx, state) ++
+        maybe_send_keying_material_to_output(ctx, state)
+
+    {{:ok, actions}, state}
   end
 
   defp handle_component_state_ready(ctx, state) do
@@ -623,16 +613,20 @@ defmodule Membrane.ICE.Endpoint do
     pad = Pad.ref(:input, @component_id)
     # if something is linked, component is ready and handshake is done then send demands
     if Map.has_key?(ctx.pads, pad) and state.component_ready? and
-         state.handshake.finished? do
-      hsk_data = if state.dtls?, do: state.handshake.data, else: nil
-
-      [
-        demand: pad,
-        event: {pad, %Handshake.Event{handshake_data: hsk_data}}
-      ]
+         state.handshake.status == :finished do
+      event = if state.dtls?, do: [event: {pad, state.handshake.keying_material_event}], else: []
+      event ++ [demand: pad]
     else
       []
     end
+  end
+
+  defp maybe_send_keying_material_to_output(ctx, state) do
+    pad = Pad.ref(:output, @component_id)
+
+    if Map.has_key?(ctx.pads, pad),
+      do: [event: {pad, state.handshake.keying_material_event}],
+      else: []
   end
 
   defp start_ice_restart_timer(state) do
@@ -666,4 +660,14 @@ defmodule Membrane.ICE.Endpoint do
        do: {%{state | pending_connection_ready?: true}, []}
 
   defp maybe_send_connection_ready(state), do: {state, []}
+
+  defp to_srtp_keying_material_event(handshake_data) do
+    {local_keying_material, remote_keying_material, protection_profile} = handshake_data
+
+    %SRTP.KeyingMaterialEvent{
+      local_keying_material: local_keying_material,
+      remote_keying_material: remote_keying_material,
+      protection_profile: protection_profile
+    }
+  end
 end

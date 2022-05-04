@@ -38,6 +38,8 @@ defmodule Membrane.ICE.Mixfile do
   defp deps do
     [
       {:membrane_core, "~> 0.9.0"},
+      {:membrane_rtp_format,
+       github: "membraneframework/membrane_rtp_format", branch: "srtp-keys-event"},
       {:bunch, "~> 1.3.0"},
       {:fake_turn, "~> 0.2.0"},
       {:ex_dtls, "~> 0.10.0"},
