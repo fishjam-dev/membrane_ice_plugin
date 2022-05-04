@@ -360,12 +360,6 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other({:hsk_finished, @component_id, hsk_data}, ctx, state) do
-    {state, actions} = handle_handshake_finished(hsk_data, ctx, state)
-    {{:ok, actions}, state}
-  end
-
-  @impl true
   def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
