@@ -1,7 +1,7 @@
 defmodule Membrane.ICE.Mixfile do
   use Mix.Project
 
-  @version "0.9.0"
+  @version "0.10.0"
   @github_url "https://github.com/membraneframework/membrane_ice_plugin"
 
   def project do
@@ -37,12 +37,12 @@ defmodule Membrane.ICE.Mixfile do
 
   defp deps do
     [
-      {:membrane_core, "~> 0.9.0"},
-      {:membrane_rtp_format, github: "membraneframework/membrane_rtp_format"},
+      {:membrane_core, "~> 0.10.0"},
+      {:membrane_rtp_format, "~> 0.4.0"},
       {:bunch, "~> 1.3.0"},
       {:fake_turn, "~> 0.2.0"},
       {:ex_dtls, "~> 0.10.0"},
-      {:membrane_funnel_plugin, "~> 0.5.0"},
+      {:membrane_funnel_plugin, "~> 0.6.0"},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6.1", only: :dev, runtime: false}
@@ -52,7 +52,7 @@ defmodule Membrane.ICE.Mixfile do
   defp package do
     [
       maintainers: ["Membrane Team"],
-      licenses: ["Apache 2.0"],
+      licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @github_url,
         "Membrane Framework Homepage" => "https://membraneframework.org"

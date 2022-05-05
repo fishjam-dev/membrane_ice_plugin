@@ -1,8 +1,8 @@
 defmodule Membrane.ICE.CandidatePortAssigner do
   @moduledoc false
 
-  @min_port 40000
-  @max_port 65535
+  @min_port 40_000
+  @max_port 65_535
 
   @spec start_link() :: {:ok, pid()} | {:error, term()}
   def start_link() do

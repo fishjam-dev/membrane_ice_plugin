@@ -1,9 +1,9 @@
 defmodule Membrane.ICE.TURNManager do
   @moduledoc false
 
-  alias Membrane.ICE
-
   require Membrane.Logger
+
+  alias Membrane.ICE
 
   @spec start_link() :: {:ok, pid()} | {:error, term()}
   def start_link() do

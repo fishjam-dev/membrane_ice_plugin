@@ -1,9 +1,9 @@
 defmodule Membrane.ICE.Utils do
   @moduledoc false
 
-  alias Membrane.ICE
-
   require Membrane.Logger
+
+  alias Membrane.ICE
 
   @numbers_and_letters Enum.concat([?0..?9, ?a..?z, ?A..?Z])
 

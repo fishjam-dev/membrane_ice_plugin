@@ -1,4 +1,6 @@
 defmodule Membrane.ICE.Application do
+  @moduledoc false
+
   use Application
 
   alias Membrane.ICE.{

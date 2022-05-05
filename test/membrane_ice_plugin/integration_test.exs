@@ -25,8 +25,6 @@ defmodule Membrane.ICE.IntegrationTest do
         ]
       })
 
-    :ok = Testing.Pipeline.play(pid)
-
     assert_pipeline_notified(pid, :ice, {:udp_integrated_turn, _turn})
 
     Testing.Pipeline.message_child(pid, :ice, :gather_candidates)

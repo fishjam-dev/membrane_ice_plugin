@@ -66,12 +66,12 @@ defmodule Membrane.ICE.Endpoint do
 
   use Membrane.Endpoint
 
+  require Membrane.Logger
+
   alias Membrane.ICE.{Utils, CandidatePortAssigner}
   alias Membrane.Funnel
   alias Membrane.SRTP
   alias __MODULE__.Allocation
-
-  require Membrane.Logger
 
   @component_id 1
   @stream_id 1
@@ -152,7 +152,7 @@ defmodule Membrane.ICE.Endpoint do
     } = options
 
     state = %{
-      id: to_string(Enum.map(1..10, fn _ -> Enum.random(?a..?z) end)),
+      id: to_string(Enum.map(1..10, fn _i -> Enum.random(?a..?z) end)),
       turn_allocs: %{},
       integrated_turn_options: integrated_turn_options,
       fake_candidate_ip: integrated_turn_options[:mock_ip] || integrated_turn_options[:ip],
@@ -173,34 +173,37 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_prepared_to_playing(_ctx, %{dtls?: true} = state) do
-    with {:ok, candidate_port} <- CandidatePortAssigner.assign_candidate_port() do
-      {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
-      {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(dtls)
-      hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
-      ice_ufrag = Utils.generate_ice_ufrag()
-      ice_pwd = Utils.generate_ice_pwd()
+    case CandidatePortAssigner.assign_candidate_port() do
+      {:ok, candidate_port} ->
+        {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
+        {:ok, fingerprint} = ExDTLS.get_cert_fingerprint(dtls)
+        hsk_state = %{:dtls => dtls, :client_mode => state.hsk_opts[:client_mode]}
+        ice_ufrag = Utils.generate_ice_ufrag()
+        ice_pwd = Utils.generate_ice_pwd()
 
-      [udp_integrated_turn] =
-        Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options, parent: self())
+        [udp_integrated_turn] =
+          Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options,
+            parent: self()
+          )
 
-      state =
-        Map.merge(state, %{
-          candidate_port: candidate_port,
-          udp_integrated_turn: udp_integrated_turn,
-          local_ice_pwd: ice_pwd,
-          handshake: %{state: hsk_state, status: :in_progress, keying_material_event: nil}
-        })
-        |> start_ice_restart_timer()
+        state =
+          Map.merge(state, %{
+            candidate_port: candidate_port,
+            udp_integrated_turn: udp_integrated_turn,
+            local_ice_pwd: ice_pwd,
+            handshake: %{state: hsk_state, status: :in_progress, keying_material_event: nil}
+          })
+          |> start_ice_restart_timer()
 
-      actions = [
-        start_timer: {:keepalive_timer, @time_between_keepalives},
-        notify: {:udp_integrated_turn, udp_integrated_turn},
-        notify: {:handshake_init_data, @component_id, fingerprint},
-        notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
-      ]
+        actions = [
+          start_timer: {:keepalive_timer, @time_between_keepalives},
+          notify: {:udp_integrated_turn, udp_integrated_turn},
+          notify: {:handshake_init_data, @component_id, fingerprint},
+          notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+        ]
 
-      {{:ok, actions}, state}
-    else
+        {{:ok, actions}, state}
+
       {:error, :no_free_candidate_port} = err ->
         {err, state}
     end
@@ -208,28 +211,31 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_prepared_to_playing(_ctx, state) do
-    with {:ok, candidate_port} <- CandidatePortAssigner.assign_candidate_port() do
-      ice_ufrag = Utils.generate_ice_ufrag()
-      ice_pwd = Utils.generate_ice_pwd()
+    case CandidatePortAssigner.assign_candidate_port() do
+      {:ok, candidate_port} ->
+        ice_ufrag = Utils.generate_ice_ufrag()
+        ice_pwd = Utils.generate_ice_pwd()
 
-      [udp_integrated_turn] =
-        Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options, parent: self())
+        [udp_integrated_turn] =
+          Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options,
+            parent: self()
+          )
 
-      state =
-        Map.merge(state, %{
-          candidate_port: candidate_port,
-          udp_integrated_turn: udp_integrated_turn,
-          local_ice_pwd: ice_pwd
-        })
+        state =
+          Map.merge(state, %{
+            candidate_port: candidate_port,
+            udp_integrated_turn: udp_integrated_turn,
+            local_ice_pwd: ice_pwd
+          })
 
-      actions = [
-        notify: {:udp_integrated_turn, udp_integrated_turn},
-        notify: {:handshake_init_data, @component_id, nil},
-        notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
-      ]
+        actions = [
+          notify: {:udp_integrated_turn, udp_integrated_turn},
+          notify: {:handshake_init_data, @component_id, nil},
+          notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+        ]
 
-      {{:ok, actions}, state}
-    else
+        {{:ok, actions}, state}
+
       {:error, :no_free_candidate_port} = err ->
         {err, state}
     end

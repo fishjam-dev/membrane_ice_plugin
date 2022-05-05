@@ -10,6 +10,6 @@ defmodule Membrane.ICE.Support.TestPipeline do
     children = %{ice: struct(Membrane.ICE.Endpoint, opts)}
     spec = %ParentSpec{children: children}
 
-    {{:ok, spec: spec}, %{}}
+    {{:ok, spec: spec, playback: :playing}, %{}}
   end
 end
