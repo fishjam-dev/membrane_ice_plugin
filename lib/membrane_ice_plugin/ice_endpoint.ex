@@ -70,6 +70,7 @@ defmodule Membrane.ICE.Endpoint do
 
   alias Membrane.ICE.{Utils, CandidatePortAssigner}
   alias Membrane.Funnel
+  alias Membrane.RemoteStream
   alias Membrane.SRTP
   alias __MODULE__.Allocation
 
@@ -127,7 +128,7 @@ defmodule Membrane.ICE.Endpoint do
 
   def_output_pad :output,
     availability: :on_request,
-    caps: :any,
+    caps: {RemoteStream, content_format: nil, type: :packetized},
     mode: :push
 
   defmodule Allocation do
@@ -196,6 +197,7 @@ defmodule Membrane.ICE.Endpoint do
           |> start_ice_restart_timer()
 
         actions = [
+          caps: {Pad.ref(:output, @component_id), %RemoteStream{type: :packetized}},
           start_timer: {:keepalive_timer, @time_between_keepalives},
           notify: {:udp_integrated_turn, udp_integrated_turn},
           notify: {:handshake_init_data, @component_id, fingerprint},
@@ -250,15 +252,17 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_pad_added(
         Pad.ref(:output, @component_id) = pad,
-        _ctx,
+        ctx,
         %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    {{:ok, event: {pad, state.handshake.keying_material_event}}, state}
+    actions = maybe_send_caps(ctx) ++ [event: {pad, state.handshake.keying_material_event}]
+    {{:ok, actions}, state}
   end
 
   @impl true
-  def handle_pad_added(Pad.ref(:output, @component_id), _ctx, state),
-    do: {:ok, state}
+  def handle_pad_added(Pad.ref(:output, @component_id), ctx, state) do
+    {{:ok, maybe_send_caps(ctx)}, state}
+  end
 
   @impl true
   def handle_write(
@@ -633,6 +637,16 @@ defmodule Membrane.ICE.Endpoint do
     if Map.has_key?(ctx.pads, pad),
       do: [event: {pad, state.handshake.keying_material_event}],
       else: []
+  end
+
+  defp maybe_send_caps(ctx) do
+    pad = Pad.ref(:output, @component_id)
+
+    if ctx.playback_state == :playing do
+      [caps: {pad, %RemoteStream{}}]
+    else
+      []
+    end
   end
 
   defp start_ice_restart_timer(state) do
