@@ -1,7 +1,7 @@
 defmodule Membrane.ICE.Mixfile do
   use Mix.Project
 
-  @version "0.10.1"
+  @version "0.11.0"
   @github_url "https://github.com/membraneframework/membrane_ice_plugin"
 
   def project do
@@ -41,7 +41,7 @@ defmodule Membrane.ICE.Mixfile do
       {:membrane_rtp_format, "~> 0.4.0"},
       {:bunch, "~> 1.3.0"},
       {:fake_turn, "~> 0.2.0"},
-      {:ex_dtls, "~> 0.10.0"},
+      {:ex_dtls, "~> 0.11.0"},
       {:membrane_funnel_plugin, "~> 0.6.0"},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
