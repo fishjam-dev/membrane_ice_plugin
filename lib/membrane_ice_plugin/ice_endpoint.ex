@@ -67,6 +67,7 @@ defmodule Membrane.ICE.Endpoint do
   use Membrane.Endpoint
 
   require Membrane.Logger
+  require Membrane.TelemetryMetrics
 
   alias Membrane.ICE.{Utils, CandidatePortAssigner}
   alias Membrane.Funnel
@@ -118,6 +119,10 @@ defmodule Membrane.ICE.Endpoint do
               integrated_turn_options: [
                 spec: [integrated_turn_options_t()],
                 description: "Integrated TURN Options"
+              ],
+              telemetry_metadata: [
+                spec: Keyword.t(),
+                default: []
               ]
 
   def_input_pad :input,
@@ -149,8 +154,16 @@ defmodule Membrane.ICE.Endpoint do
     %__MODULE__{
       integrated_turn_options: integrated_turn_options,
       dtls?: dtls?,
-      handshake_opts: hsk_opts
+      handshake_opts: hsk_opts,
+      telemetry_metadata: telemetry_metadata
     } = options
+
+    for event_name <- [packet_sent_event(), packet_received_event()] do
+      Membrane.TelemetryMetrics.register_event_with_telemetry_metadata(
+        event_name,
+        telemetry_metadata
+      )
+    end
 
     state = %{
       id: to_string(Enum.map(1..10, fn _i -> Enum.random(?a..?z) end)),
@@ -160,6 +173,7 @@ defmodule Membrane.ICE.Endpoint do
       selected_alloc: nil,
       dtls?: dtls?,
       hsk_opts: hsk_opts,
+      telemetry_metadata: telemetry_metadata,
       component_connected?: false,
       cached_hsk_packets: nil,
       component_ready?: false,
@@ -272,7 +286,7 @@ defmodule Membrane.ICE.Endpoint do
         %{selected_alloc: alloc} = state
       )
       when is_pid(alloc) do
-    Utils.send_ice_payload(alloc, payload)
+    send_ice_payload(alloc, payload, state.telemetry_metadata)
     {{:ok, demand: pad}, state}
   end
 
@@ -397,6 +411,12 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_other({:ice_payload, payload}, ctx, state) do
+    Membrane.TelemetryMetrics.execute(
+      packet_received_event(),
+      %{bytes: byte_size(payload)},
+      %{telemetry_metadata: state.telemetry_metadata}
+    )
+
     if state.dtls? and Utils.is_dtls_hsk_packet(payload) do
       ExDTLS.process(state.handshake.state.dtls, payload)
       |> handle_process_result(ctx, state)
@@ -533,12 +553,16 @@ defmodule Membrane.ICE.Endpoint do
             "Sending cached handshake packets for component: #{@component_id}"
           )
 
-          Utils.send_ice_payload(state.selected_alloc, state.cached_hsk_packets)
+          send_ice_payload(
+            state.selected_alloc,
+            state.cached_hsk_packets,
+            state.telemetry_metadata
+          )
         end
 
         with %{dtls?: true} <- state, %{dtls: dtls, client_mode: true} <- state.handshake.state do
           {:ok, packets} = ExDTLS.do_handshake(dtls)
-          Utils.send_ice_payload(state.selected_alloc, packets)
+          send_ice_payload(state.selected_alloc, packets, state.telemetry_metadata)
         else
           _state -> :ok
         end
@@ -569,7 +593,7 @@ defmodule Membrane.ICE.Endpoint do
 
   defp handle_process_result({:handshake_packets, packets}, _ctx, state) do
     if state.component_connected? do
-      Utils.send_ice_payload(state.selected_alloc, packets)
+      send_ice_payload(state.selected_alloc, packets, state.telemetry_metadata)
       {:ok, state}
     else
       # if connection is not ready yet cache data
@@ -583,7 +607,7 @@ defmodule Membrane.ICE.Endpoint do
     do: handle_end_of_hsk(hsk_data, ctx, state)
 
   defp handle_process_result({:handshake_finished, hsk_data, packets}, ctx, state) do
-    Utils.send_ice_payload(state.selected_alloc, packets)
+    send_ice_payload(state.selected_alloc, packets, state.telemetry_metadata)
     handle_end_of_hsk(hsk_data, ctx, state)
   end
 
@@ -690,4 +714,18 @@ defmodule Membrane.ICE.Endpoint do
       protection_profile: protection_profile
     }
   end
+
+  defp send_ice_payload(alloc_pid, payload, telemetry_metadata) do
+    Membrane.TelemetryMetrics.execute(
+      packet_sent_event(),
+      %{bytes: byte_size(payload)},
+      %{telemetry_metadata: telemetry_metadata}
+    )
+
+    send(alloc_pid, {:send_ice_payload, payload})
+  end
+
+  defp packet_received_event(), do: [:ice, :packet_received]
+
+  defp packet_sent_event(), do: [:ice, :packet_sent]
 end

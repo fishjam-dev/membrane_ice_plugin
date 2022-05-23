@@ -79,10 +79,6 @@ defmodule Membrane.ICE.Utils do
     |> send_connectivity_check(alloc_pid, pwd, magic, trid)
   end
 
-  @spec send_ice_payload(pid(), binary()) :: any()
-  def send_ice_payload(alloc_pid, payload),
-    do: send(alloc_pid, {:send_ice_payload, payload})
-
   @spec generate_transaction_id() :: number()
   def generate_transaction_id() do
     # RFC 5389, 3: transaction ID [...] is a randomly selected 96-bit number
