@@ -5,33 +5,33 @@ defmodule Membrane.ICE.Metrics do
   def metrics() do
     [
       Telemetry.Metrics.counter(
-        "ice.packets-received",
+        "ice.packets_received",
         event_name: [:ice, :payload, :received]
       ),
       Telemetry.Metrics.sum(
-        "ice.bytes-received",
+        "ice.bytes_received",
         event_name: [:ice, :payload, :received],
         measurement: :bytes
       ),
       Telemetry.Metrics.counter(
-        "ice.packets-sent",
+        "ice.packets_sent",
         event_name: [:ice, :payload, :sent]
       ),
       Telemetry.Metrics.sum(
-        "ice.bytes-sent",
+        "ice.bytes_sent",
         event_name: [:ice, :payload, :sent],
         measurement: :bytes
       ),
       Telemetry.Metrics.counter(
-        "ice.binding-responses-sent",
+        "ice.binding_responses_sent",
         event_name: [:stun, :response, :sent]
       ),
       Telemetry.Metrics.counter(
-        "ice.binding-requests-received",
+        "ice.binding_requests_received",
         event_name: [:stun, :request, :received]
       ),
       Telemetry.Metrics.counter(
-        "ice.keepalives-sent",
+        "ice.keepalives_sent",
         event_name: [:stun, :keepalive, :sent]
       )
     ]
