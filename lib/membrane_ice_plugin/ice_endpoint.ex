@@ -158,7 +158,7 @@ defmodule Membrane.ICE.Endpoint do
       telemetry_metadata: telemetry_metadata
     } = options
 
-    for event_name <- [packet_sent_event(), packet_received_event()] do
+    for event_name <- [payload_sent_event(), payload_received_event()] do
       Membrane.TelemetryMetrics.register_event_with_telemetry_metadata(
         event_name,
         telemetry_metadata
@@ -310,6 +310,12 @@ defmodule Membrane.ICE.Endpoint do
       tr_id = Utils.generate_transaction_id()
       Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
 
+      Membrane.TelemetryMetrics.execute(
+        [:stun, :indication, :sent],
+        %{},
+        %{telemetry_metadata: state.telemetry_metadata}
+      )
+
       Membrane.Logger.debug(
         "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
       )
@@ -412,7 +418,7 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_other({:ice_payload, payload}, ctx, state) do
     Membrane.TelemetryMetrics.execute(
-      packet_received_event(),
+      payload_received_event(),
       %{bytes: byte_size(payload)},
       %{telemetry_metadata: state.telemetry_metadata}
     )
@@ -471,6 +477,12 @@ defmodule Membrane.ICE.Endpoint do
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
+    Membrane.TelemetryMetrics.execute(
+      [:stun, :request, :received],
+      %{},
+      %{telemetry_metadata: state.telemetry_metadata}
+    )
+
     alloc = state.turn_allocs[alloc_pid]
 
     Utils.send_binding_success(
@@ -479,6 +491,12 @@ defmodule Membrane.ICE.Endpoint do
       attrs.magic,
       attrs.trid,
       attrs.username
+    )
+
+    Membrane.TelemetryMetrics.execute(
+      [:stun, :response, :sent],
+      %{},
+      %{telemetry_metadata: state.telemetry_metadata}
     )
 
     [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
@@ -717,7 +735,7 @@ defmodule Membrane.ICE.Endpoint do
 
   defp send_ice_payload(alloc_pid, payload, telemetry_metadata) do
     Membrane.TelemetryMetrics.execute(
-      packet_sent_event(),
+      payload_sent_event(),
       %{bytes: byte_size(payload)},
       %{telemetry_metadata: telemetry_metadata}
     )
@@ -725,7 +743,7 @@ defmodule Membrane.ICE.Endpoint do
     send(alloc_pid, {:send_ice_payload, payload})
   end
 
-  defp packet_received_event(), do: [:ice, :packet_received]
+  defp payload_received_event(), do: [:ice, :payload, :received]
 
-  defp packet_sent_event(), do: [:ice, :packet_sent]
+  defp payload_sent_event(), do: [:ice, :payload, :sent]
 end
