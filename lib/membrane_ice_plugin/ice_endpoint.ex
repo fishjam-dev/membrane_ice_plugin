@@ -158,7 +158,7 @@ defmodule Membrane.ICE.Endpoint do
       telemetry_metadata: telemetry_metadata
     } = options
 
-    for event_name <- [payload_sent_event(), payload_received_event()] do
+    for event_name <- emitted_events() do
       Membrane.TelemetryMetrics.register_event_with_telemetry_metadata(
         event_name,
         telemetry_metadata
@@ -743,7 +743,23 @@ defmodule Membrane.ICE.Endpoint do
     send(alloc_pid, {:send_ice_payload, payload})
   end
 
+  defp emitted_events() do
+    [
+      payload_received_event(),
+      payload_received_event(),
+      request_received_event(),
+      response_sent_event(),
+      indication_sent_event()
+    ]
+  end
+
   defp payload_received_event(), do: [:ice, :payload, :received]
 
   defp payload_sent_event(), do: [:ice, :payload, :sent]
+
+  defp request_received_event(), do: [:stun, :request, :received]
+
+  defp response_sent_event(), do: [:stun, :response, :sent]
+
+  defp indication_sent_event(), do: [:stun, :indication, :sent]
 end
