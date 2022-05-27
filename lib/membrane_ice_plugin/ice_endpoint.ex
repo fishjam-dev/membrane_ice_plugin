@@ -121,8 +121,9 @@ defmodule Membrane.ICE.Endpoint do
                 description: "Integrated TURN Options"
               ],
               telemetry_label: [
-                spec: Keyword.t(),
-                default: []
+                spec: Membrane.TelemetryMetrics.label(),
+                default: [],
+                description: "Label passed to Membrane.TelemetryMetrics functions"
               ]
 
   def_input_pad :input,
