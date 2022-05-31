@@ -11,33 +11,33 @@ defmodule Membrane.ICE.Metrics do
     [
       Telemetry.Metrics.counter(
         "ice.packets_received",
-        event_name: [Membrane.ICE, :ICE, :payload, :received]
+        event_name: [Membrane.ICE, :ice, :payload, :received]
       ),
       Telemetry.Metrics.sum(
         "ice.bytes_received",
-        event_name: [Membrane.ICE, :ICE, :payload, :received],
+        event_name: [Membrane.ICE, :ice, :payload, :received],
         measurement: :bytes
       ),
       Telemetry.Metrics.counter(
         "ice.packets_sent",
-        event_name: [Membrane.ICE, :ICE, :payload, :sent]
+        event_name: [Membrane.ICE, :ice, :payload, :sent]
       ),
       Telemetry.Metrics.sum(
         "ice.bytes_sent",
-        event_name: [Membrane.ICE, :ICE, :payload, :sent],
+        event_name: [Membrane.ICE, :ice, :payload, :sent],
         measurement: :bytes
       ),
       Telemetry.Metrics.counter(
         "ice.binding_responses_sent",
-        event_name: [Membrane.ICE, :STUN, :response, :sent]
+        event_name: [Membrane.ICE, :stun, :response, :sent]
       ),
       Telemetry.Metrics.counter(
         "ice.binding_requests_received",
-        event_name: [Membrane.ICE, :STUN, :request, :received]
+        event_name: [Membrane.ICE, :stun, :request, :received]
       ),
       Telemetry.Metrics.counter(
         "ice.keepalives_sent",
-        event_name: [Membrane.ICE, :STUN, :keepalive, :sent]
+        event_name: [Membrane.ICE, :stun, :keepalive, :sent]
       )
     ]
   end

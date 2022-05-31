@@ -741,13 +741,13 @@ defmodule Membrane.ICE.Endpoint do
     ]
   end
 
-  defp payload_received_event(), do: [Membrane.ICE, :ICE, :payload, :received]
+  defp payload_received_event(), do: [Membrane.ICE, :ice, :payload, :received]
 
-  defp payload_sent_event(), do: [Membrane.ICE, :ICE, :payload, :sent]
+  defp payload_sent_event(), do: [Membrane.ICE, :ice, :payload, :sent]
 
-  defp request_received_event(), do: [Membrane.ICE, :STUN, :request, :received]
+  defp request_received_event(), do: [Membrane.ICE, :stun, :request, :received]
 
-  defp response_sent_event(), do: [Membrane.ICE, :STUN, :response, :sent]
+  defp response_sent_event(), do: [Membrane.ICE, :stun, :response, :sent]
 
-  defp indication_sent_event(), do: [Membrane.ICE, :STUN, :indication, :sent]
+  defp indication_sent_event(), do: [Membrane.ICE, :stun, :indication, :sent]
 end
