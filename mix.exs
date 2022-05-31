@@ -37,6 +37,10 @@ defmodule Membrane.ICE.Mixfile do
 
   defp deps do
     [
+      {
+        :membrane_telemetry_metrics,
+        github: "membraneframework/membrane_telemetry_metrics"
+      },
       {:membrane_core, "~> 0.10.0"},
       {:membrane_rtp_format, "~> 0.4.0"},
       {:bunch, "~> 1.3.0"},

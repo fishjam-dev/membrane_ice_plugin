@@ -67,6 +67,7 @@ defmodule Membrane.ICE.Endpoint do
   use Membrane.Endpoint
 
   require Membrane.Logger
+  require Membrane.TelemetryMetrics
 
   alias Membrane.ICE.{Utils, CandidatePortAssigner}
   alias Membrane.Funnel
@@ -78,6 +79,19 @@ defmodule Membrane.ICE.Endpoint do
   @stream_id 1
   @time_between_keepalives 1_000_000_000
   @ice_restart_timeout 5_000
+
+  @payload_received_event [Membrane.ICE, :ice, :payload, :received]
+  @payload_sent_event [Membrane.ICE, :ice, :payload, :sent]
+  @request_received_event [Membrane.ICE, :stun, :request, :received]
+  @response_sent_event [Membrane.ICE, :stun, :response, :sent]
+  @indication_sent_event [Membrane.ICE, :stun, :indication, :sent]
+  @emitted_events [
+    @payload_received_event,
+    @payload_sent_event,
+    @request_received_event,
+    @response_sent_event,
+    @indication_sent_event
+  ]
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
@@ -118,6 +132,11 @@ defmodule Membrane.ICE.Endpoint do
               integrated_turn_options: [
                 spec: [integrated_turn_options_t()],
                 description: "Integrated TURN Options"
+              ],
+              telemetry_label: [
+                spec: Membrane.TelemetryMetrics.label(),
+                default: [],
+                description: "Label passed to Membrane.TelemetryMetrics functions"
               ]
 
   def_input_pad :input,
@@ -149,8 +168,13 @@ defmodule Membrane.ICE.Endpoint do
     %__MODULE__{
       integrated_turn_options: integrated_turn_options,
       dtls?: dtls?,
-      handshake_opts: hsk_opts
+      handshake_opts: hsk_opts,
+      telemetry_label: telemetry_label
     } = options
+
+    for event_name <- @emitted_events do
+      Membrane.TelemetryMetrics.register(event_name, telemetry_label)
+    end
 
     state = %{
       id: to_string(Enum.map(1..10, fn _i -> Enum.random(?a..?z) end)),
@@ -160,6 +184,7 @@ defmodule Membrane.ICE.Endpoint do
       selected_alloc: nil,
       dtls?: dtls?,
       hsk_opts: hsk_opts,
+      telemetry_label: telemetry_label,
       component_connected?: false,
       cached_hsk_packets: nil,
       component_ready?: false,
@@ -272,7 +297,7 @@ defmodule Membrane.ICE.Endpoint do
         %{selected_alloc: alloc} = state
       )
       when is_pid(alloc) do
-    Utils.send_ice_payload(alloc, payload)
+    send_ice_payload(alloc, payload, state.telemetry_label)
     {{:ok, demand: pad}, state}
   end
 
@@ -295,6 +320,8 @@ defmodule Membrane.ICE.Endpoint do
          %{^alloc_pid => %{magic: magic}} when magic != nil <- state.turn_allocs do
       tr_id = Utils.generate_transaction_id()
       Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
+
+      Membrane.TelemetryMetrics.execute(@indication_sent_event, %{}, %{}, state.telemetry_label)
 
       Membrane.Logger.debug(
         "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
@@ -397,6 +424,13 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_other({:ice_payload, payload}, ctx, state) do
+    Membrane.TelemetryMetrics.execute(
+      @payload_received_event,
+      %{bytes: byte_size(payload)},
+      %{},
+      state.telemetry_label
+    )
+
     if state.dtls? and Utils.is_dtls_hsk_packet(payload) do
       ExDTLS.process(state.handshake.state.dtls, payload)
       |> handle_process_result(ctx, state)
@@ -451,6 +485,8 @@ defmodule Membrane.ICE.Endpoint do
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
+    Membrane.TelemetryMetrics.execute(@request_received_event, %{}, %{}, state.telemetry_label)
+
     alloc = state.turn_allocs[alloc_pid]
 
     Utils.send_binding_success(
@@ -460,6 +496,8 @@ defmodule Membrane.ICE.Endpoint do
       attrs.trid,
       attrs.username
     )
+
+    Membrane.TelemetryMetrics.execute(@response_sent_event, %{}, %{}, state.telemetry_label)
 
     [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
     |> then(&"Sending Binding Success with params: #{inspect(&1)}")
@@ -533,12 +571,16 @@ defmodule Membrane.ICE.Endpoint do
             "Sending cached handshake packets for component: #{@component_id}"
           )
 
-          Utils.send_ice_payload(state.selected_alloc, state.cached_hsk_packets)
+          send_ice_payload(
+            state.selected_alloc,
+            state.cached_hsk_packets,
+            state.telemetry_label
+          )
         end
 
         with %{dtls?: true} <- state, %{dtls: dtls, client_mode: true} <- state.handshake.state do
           {:ok, packets} = ExDTLS.do_handshake(dtls)
-          Utils.send_ice_payload(state.selected_alloc, packets)
+          send_ice_payload(state.selected_alloc, packets, state.telemetry_label)
         else
           _state -> :ok
         end
@@ -569,7 +611,7 @@ defmodule Membrane.ICE.Endpoint do
 
   defp handle_process_result({:handshake_packets, packets}, _ctx, state) do
     if state.component_connected? do
-      Utils.send_ice_payload(state.selected_alloc, packets)
+      send_ice_payload(state.selected_alloc, packets, state.telemetry_label)
       {:ok, state}
     else
       # if connection is not ready yet cache data
@@ -583,7 +625,7 @@ defmodule Membrane.ICE.Endpoint do
     do: handle_end_of_hsk(hsk_data, ctx, state)
 
   defp handle_process_result({:handshake_finished, hsk_data, packets}, ctx, state) do
-    Utils.send_ice_payload(state.selected_alloc, packets)
+    send_ice_payload(state.selected_alloc, packets, state.telemetry_label)
     handle_end_of_hsk(hsk_data, ctx, state)
   end
 
@@ -689,5 +731,16 @@ defmodule Membrane.ICE.Endpoint do
       remote_keying_material: remote_keying_material,
       protection_profile: protection_profile
     }
+  end
+
+  defp send_ice_payload(alloc_pid, payload, telemetry_label) do
+    Membrane.TelemetryMetrics.execute(
+      @payload_sent_event,
+      %{bytes: byte_size(payload)},
+      %{},
+      telemetry_label
+    )
+
+    send(alloc_pid, {:send_ice_payload, payload})
   end
 end
