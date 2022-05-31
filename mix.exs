@@ -42,7 +42,7 @@ defmodule Membrane.ICE.Mixfile do
         github: "membraneframework/membrane_telemetry_metrics"
       },
       {:membrane_core, "~> 0.10.0"},
-      {:membrane_rtp_format, "~> 0.4.0"},
+      {:membrane_rtp_format, github: "membraneframework/membrane_rtp_format"},
       {:bunch, "~> 1.3.0"},
       {:fake_turn, "~> 0.2.0"},
       {:ex_dtls, "~> 0.11.0"},
