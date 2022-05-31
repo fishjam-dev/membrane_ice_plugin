@@ -80,6 +80,19 @@ defmodule Membrane.ICE.Endpoint do
   @time_between_keepalives 1_000_000_000
   @ice_restart_timeout 5_000
 
+  @payload_received_event [Membrane.ICE, :ice, :payload, :received]
+  @payload_sent_event [Membrane.ICE, :ice, :payload, :sent]
+  @request_received_event [Membrane.ICE, :stun, :request, :received]
+  @response_sent_event [Membrane.ICE, :stun, :response, :sent]
+  @indication_sent_event [Membrane.ICE, :stun, :indication, :sent]
+  @emitted_events [
+    @payload_received_event,
+    @payload_sent_event,
+    @request_received_event,
+    @response_sent_event,
+    @indication_sent_event
+  ]
+
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
   - `:ip` - IP, where integrated TURN server will open its sockets
@@ -159,7 +172,7 @@ defmodule Membrane.ICE.Endpoint do
       telemetry_label: telemetry_label
     } = options
 
-    for event_name <- emitted_events() do
+    for event_name <- @emitted_events do
       Membrane.TelemetryMetrics.register(event_name, telemetry_label)
     end
 
@@ -308,7 +321,7 @@ defmodule Membrane.ICE.Endpoint do
       tr_id = Utils.generate_transaction_id()
       Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
 
-      Membrane.TelemetryMetrics.execute(indication_sent_event(), %{}, %{}, state.telemetry_label)
+      Membrane.TelemetryMetrics.execute(@indication_sent_event, %{}, %{}, state.telemetry_label)
 
       Membrane.Logger.debug(
         "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
@@ -412,7 +425,7 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_other({:ice_payload, payload}, ctx, state) do
     Membrane.TelemetryMetrics.execute(
-      payload_received_event(),
+      @payload_received_event,
       %{bytes: byte_size(payload)},
       %{},
       state.telemetry_label
@@ -472,7 +485,7 @@ defmodule Membrane.ICE.Endpoint do
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
-    Membrane.TelemetryMetrics.execute(request_received_event(), %{}, %{}, state.telemetry_label)
+    Membrane.TelemetryMetrics.execute(@request_received_event, %{}, %{}, state.telemetry_label)
 
     alloc = state.turn_allocs[alloc_pid]
 
@@ -484,7 +497,7 @@ defmodule Membrane.ICE.Endpoint do
       attrs.username
     )
 
-    Membrane.TelemetryMetrics.execute(response_sent_event(), %{}, %{}, state.telemetry_label)
+    Membrane.TelemetryMetrics.execute(@response_sent_event, %{}, %{}, state.telemetry_label)
 
     [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
     |> then(&"Sending Binding Success with params: #{inspect(&1)}")
@@ -722,7 +735,7 @@ defmodule Membrane.ICE.Endpoint do
 
   defp send_ice_payload(alloc_pid, payload, telemetry_label) do
     Membrane.TelemetryMetrics.execute(
-      payload_sent_event(),
+      @payload_sent_event,
       %{bytes: byte_size(payload)},
       %{},
       telemetry_label
@@ -730,24 +743,4 @@ defmodule Membrane.ICE.Endpoint do
 
     send(alloc_pid, {:send_ice_payload, payload})
   end
-
-  defp emitted_events() do
-    [
-      payload_received_event(),
-      payload_sent_event(),
-      request_received_event(),
-      response_sent_event(),
-      indication_sent_event()
-    ]
-  end
-
-  defp payload_received_event(), do: [Membrane.ICE, :ice, :payload, :received]
-
-  defp payload_sent_event(), do: [Membrane.ICE, :ice, :payload, :sent]
-
-  defp request_received_event(), do: [Membrane.ICE, :stun, :request, :received]
-
-  defp response_sent_event(), do: [Membrane.ICE, :stun, :response, :sent]
-
-  defp indication_sent_event(), do: [Membrane.ICE, :stun, :indication, :sent]
 end
