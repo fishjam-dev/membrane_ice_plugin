@@ -1,7 +1,7 @@
 defmodule Membrane.ICE.Mixfile do
   use Mix.Project
 
-  @version "0.11.0"
+  @version "0.12.0"
   @github_url "https://github.com/membraneframework/membrane_ice_plugin"
 
   def project do
@@ -37,16 +37,13 @@ defmodule Membrane.ICE.Mixfile do
 
   defp deps do
     [
-      {
-        :membrane_telemetry_metrics,
-        github: "membraneframework/membrane_telemetry_metrics"
-      },
       {:membrane_core, "~> 0.10.0"},
-      {:membrane_rtp_format, github: "membraneframework/membrane_rtp_format"},
+      {:membrane_rtp_format, "~> 0.5.0"},
+      {:membrane_funnel_plugin, "~> 0.6.0"},
+      {:membrane_telemetry_metrics, "~> 0.1.0"},
       {:bunch, "~> 1.3.0"},
       {:fake_turn, "~> 0.2.0"},
       {:ex_dtls, "~> 0.11.0"},
-      {:membrane_funnel_plugin, "~> 0.6.0"},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6.1", only: :dev, runtime: false}
