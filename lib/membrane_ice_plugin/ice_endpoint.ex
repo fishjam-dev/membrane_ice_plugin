@@ -222,8 +222,8 @@ defmodule Membrane.ICE.Endpoint do
         {:ok, _pid} =
           Membrane.ICE.TURNCleaner.start_under(
             state.turn_cleaner_sup,
-            pid: self(),
-            turn: udp_integrated_turn
+            self(),
+            udp_integrated_turn
           )
 
         state =
@@ -265,8 +265,8 @@ defmodule Membrane.ICE.Endpoint do
         {:ok, _pid} =
           Membrane.ICE.TURNCleaner.start_under(
             state.turn_cleaner_sup,
-            pid: self(),
-            turn: udp_integrated_turn
+            self(),
+            udp_integrated_turn
           )
 
         state =

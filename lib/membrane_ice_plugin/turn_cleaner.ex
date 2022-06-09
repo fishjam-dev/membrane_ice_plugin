@@ -4,46 +4,41 @@ defmodule Membrane.ICE.TURNCleaner do
 
   It monitors given process and when it exits, stops Integrated TURN.
   """
-  use GenServer, restart: :transient
-
-  @typedoc """
-  * `pid` - pid to monitor
-  * `turn` - TURN server to terminate when process with pid `pid` exits
-  """
-  @type init_arg() :: [pid: pid(), turn: map()]
 
   @doc """
-  Starts and links Integrated TURN cleaner to calling process.
+  Spawns a new TURN cleaner and links it to calling process.
+
+  `pid` is a pid of a process to monitor and `turn` is an TURN server to terminate when process
+  with pid `pid` exits.
   """
-  @spec start_link(init_arg()) :: GenServer.on_start()
-  def start_link(init_arg) do
-    GenServer.start_link(__MODULE__, init_arg)
+  @spec start_link(pid(), map()) :: {:ok, pid}
+  def start_link(pid, turn) do
+    cleaner_pid =
+      Process.spawn(
+        fn ->
+          pid_monitor = Process.monitor(pid)
+
+          receive do
+            {:DOWN, ^pid_monitor, :process, ^pid, _reason} ->
+              Membrane.ICE.Utils.stop_integrated_turn(turn)
+          end
+        end,
+        [:link]
+      )
+
+    {:ok, cleaner_pid}
   end
 
   @doc """
   Spawns new `Membrane.ICE.TurnCleaner` under supervisor `supervisor`.
+
+  `pid` and `turn` have the same meaning as in `start_link/2`.
   """
-  @spec start_under(Supervisor.supervisor(), init_arg()) :: DynamicSupervisor.on_start_child()
-  def start_under(supervisor, init_arg) do
+  @spec start_under(Supervisor.supervisor(), pid(), map()) :: DynamicSupervisor.on_start_child()
+  def start_under(supervisor, pid, turn) do
     DynamicSupervisor.start_child(
       supervisor,
-      {__MODULE__, init_arg}
+      %{id: make_ref(), start: {__MODULE__, :start_link, [pid, turn]}, restart: :transient}
     )
-  end
-
-  @impl true
-  def init(pid: pid, turn: turn) do
-    pid_monitor = Process.monitor(pid)
-    state = %{pid_monitor: pid_monitor, pid: pid, turn: turn}
-    {:ok, state}
-  end
-
-  @impl true
-  def handle_info(
-        {:DOWN, pid_monitor, :process, pid, _reason},
-        %{pid_monitor: pid_monitor, pid: pid, turn: turn} = state
-      ) do
-    Membrane.ICE.Utils.stop_integrated_turn(turn)
-    {:stop, :normal, state}
   end
 end

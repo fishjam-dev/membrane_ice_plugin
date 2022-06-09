@@ -6,6 +6,9 @@ defmodule Membrane.ICE.TURNCleanerTest do
   test "TURNCleaner is created and destroyed properly" do
     turn_cleaner_sup = start_supervised!({DynamicSupervisor, strategy: :one_for_one})
 
+    assert %{specs: 0, active: 0, supervisors: 0, workers: 0} ==
+             DynamicSupervisor.count_children(turn_cleaner_sup)
+
     children = [
       ice_endpoint: %Membrane.ICE.Endpoint{
         dtls?: false,
