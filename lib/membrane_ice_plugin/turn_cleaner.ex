@@ -16,10 +16,10 @@ defmodule Membrane.ICE.TURNCleaner do
     cleaner_pid =
       Process.spawn(
         fn ->
-          pid_monitor = Process.monitor(pid)
+          monitor_ref = Process.monitor(pid)
 
           receive do
-            {:DOWN, ^pid_monitor, :process, ^pid, _reason} ->
+            {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
               Membrane.ICE.Utils.stop_integrated_turn(turn)
           end
         end,
@@ -30,7 +30,7 @@ defmodule Membrane.ICE.TURNCleaner do
   end
 
   @doc """
-  Spawns new `Membrane.ICE.TurnCleaner` under supervisor `supervisor`.
+  Spawns a new TURN cleaner under supervisor `supervisor`.
 
   `pid` and `turn` have the same meaning as in `start_link/2`.
   """
