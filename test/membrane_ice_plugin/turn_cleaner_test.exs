@@ -21,10 +21,14 @@ defmodule Membrane.ICE.TURNCleanerTest do
     assert %{specs: 1, active: 1, supervisors: 0, workers: 1} ==
              DynamicSupervisor.count_children(turn_cleaner_sup)
 
+    [{:undefined, turn_cleaner_pid, :worker, _modules}] =
+      DynamicSupervisor.which_children(turn_cleaner_sup)
+
+    m_ref = Process.monitor(turn_cleaner_pid)
+
     :ok = Membrane.Testing.Pipeline.terminate(pipeline, blocking?: true)
 
-    # give TURN cleaner some time to exit
-    Process.sleep(100)
+    assert_receive {:DOWN, ^m_ref, :process, ^turn_cleaner_pid, :normal}
 
     assert %{specs: 0, active: 0, supervisors: 0, workers: 0} ==
              DynamicSupervisor.count_children(turn_cleaner_sup)
