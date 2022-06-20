@@ -97,5 +97,7 @@ defmodule Membrane.ICE.IntegrationTest do
     assert username == stun_msg[:username]
 
     assert_pipeline_notified(pid, :ice, {:connection_ready, @stream_id, @component_id})
+
+    Testing.Pipeline.terminate(pid, blocking?: true)
   end
 end
