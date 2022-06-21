@@ -94,7 +94,8 @@ defmodule Membrane.ICE.Endpoint do
     @indication_sent_event
   ]
 
-  @lifespan_name "ice_endpoint.lifespan"
+  @life_span "ice_endpoint.life_span"
+  @dtls_handshake_span "ice_endpoint.dtls_handshake"
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
@@ -195,7 +196,7 @@ defmodule Membrane.ICE.Endpoint do
     if trace_context != [], do: Membrane.OpenTelemetry.attach(trace_context)
     Membrane.OpenTelemetry.register()
     start_span_opts = if parent_span, do: [parent: parent_span], else: []
-    Membrane.OpenTelemetry.start_span(@lifespan_name, start_span_opts)
+    Membrane.OpenTelemetry.start_span(@life_span, start_span_opts)
 
     for event_name <- @emitted_events do
       Membrane.TelemetryMetrics.register(event_name, telemetry_label)
@@ -217,7 +218,8 @@ defmodule Membrane.ICE.Endpoint do
       pending_connection_ready?: false,
       connection_status_sent?: false,
       sdp_offer_arrived?: false,
-      ice_restart_timer: nil
+      ice_restart_timer: nil,
+      first_dtls_hsk_packet_arrived: false
     }
 
     {:ok, state}
@@ -396,7 +398,7 @@ defmodule Membrane.ICE.Endpoint do
       })
       |> stop_ice_restart_timer()
 
-    Membrane.OpenTelemetry.add_event(@lifespan_name, :component_ready)
+    Membrane.OpenTelemetry.add_event(@life_span, :component_ready)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
     {{:ok, actions}, state}
   end
@@ -427,7 +429,7 @@ defmodule Membrane.ICE.Endpoint do
       })
       |> start_ice_restart_timer()
 
-    Membrane.OpenTelemetry.add_event(@lifespan_name, :restart_stream)
+    Membrane.OpenTelemetry.add_event(@life_span, :restart_stream)
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
     {{:ok, notify: {:local_credentials, credentials}}, state}
@@ -462,7 +464,7 @@ defmodule Membrane.ICE.Endpoint do
         Process.monitor(alloc_pid)
 
         alloc_span_name(alloc_pid)
-        |> Membrane.OpenTelemetry.start_span(parent_name: @lifespan_name)
+        |> Membrane.OpenTelemetry.start_span(parent_name: @life_span)
 
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
@@ -489,6 +491,14 @@ defmodule Membrane.ICE.Endpoint do
     )
 
     if state.dtls? and Utils.is_dtls_hsk_packet(payload) do
+      state =
+        if state.first_dtls_hsk_packet_arrived do
+          state
+        else
+          Membrane.OpenTelemetry.start_span(@dtls_handshake_span, parent_name: @life_span)
+          %{state | first_dtls_hsk_packet_arrived: true}
+        end
+
       ExDTLS.process(state.handshake.state.dtls, payload)
       |> handle_process_result(ctx, state)
     else
@@ -521,7 +531,7 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_other(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
-    Membrane.OpenTelemetry.add_event(@lifespan_name, :ice_restart_timeout)
+    Membrane.OpenTelemetry.add_event(@life_span, :ice_restart_timeout)
 
     state = %{state | connection_status_sent?: true, pending_connection_ready?: false}
     actions = [notify: {:connection_failed, @stream_id, @component_id}]
@@ -611,7 +621,7 @@ defmodule Membrane.ICE.Endpoint do
     state = Map.put(state, :selected_alloc, alloc_pid)
     Membrane.Logger.debug("Component #{@component_id} READY")
 
-    Membrane.OpenTelemetry.add_event(@lifespan_name, :new_selected_allocation,
+    Membrane.OpenTelemetry.add_event(@life_span, :new_selected_allocation,
       allocation: inspect(alloc_pid)
     )
 
@@ -697,6 +707,8 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp handle_end_of_hsk(hsk_data, ctx, state) do
+    Membrane.OpenTelemetry.end_span(@dtls_handshake_span)
+
     hsk_state = state.handshake.state
     event = to_srtp_keying_material_event(hsk_data)
 
@@ -773,7 +785,7 @@ defmodule Membrane.ICE.Endpoint do
       %{state | connection_status_sent?: true}
       |> stop_ice_restart_timer()
 
-    Membrane.OpenTelemetry.add_event(@lifespan_name, :component_ready)
+    Membrane.OpenTelemetry.add_event(@life_span, :component_state_ready)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
 
     {state, actions}
