@@ -150,6 +150,11 @@ defmodule Membrane.ICE.Endpoint do
               parent_span: [
                 spec: any(),
                 default: nil
+              ],
+              turn_cleaner_sup: [
+                spec: Supervisor.supervisor(),
+                default: Membrane.ICE.TURNCleaner.Sup,
+                description: "Supervisor under which TURN cleaner should be spawned"
               ]
 
   def_input_pad :input,
@@ -184,7 +189,8 @@ defmodule Membrane.ICE.Endpoint do
       handshake_opts: hsk_opts,
       telemetry_label: telemetry_label,
       trace_context: trace_context,
-      parent_span: parent_span
+      parent_span: parent_span,
+      turn_cleaner_sup: turn_cleaner_sup
     } = options
 
     if trace_context != [], do: Membrane.OpenTelemetry.attach(trace_context)
@@ -205,6 +211,7 @@ defmodule Membrane.ICE.Endpoint do
       dtls?: dtls?,
       hsk_opts: hsk_opts,
       telemetry_label: telemetry_label,
+      turn_cleaner_sup: turn_cleaner_sup,
       component_connected?: false,
       cached_hsk_packets: nil,
       component_ready?: false,
@@ -230,6 +237,13 @@ defmodule Membrane.ICE.Endpoint do
         [udp_integrated_turn] =
           Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options,
             parent: self()
+          )
+
+        {:ok, _pid} =
+          Membrane.ICE.TURNCleaner.start_under(
+            state.turn_cleaner_sup,
+            self(),
+            udp_integrated_turn
           )
 
         state =
@@ -266,6 +280,13 @@ defmodule Membrane.ICE.Endpoint do
         [udp_integrated_turn] =
           Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options,
             parent: self()
+          )
+
+        {:ok, _pid} =
+          Membrane.ICE.TURNCleaner.start_under(
+            state.turn_cleaner_sup,
+            self(),
+            udp_integrated_turn
           )
 
         state =
@@ -510,15 +531,6 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_other(msg, _ctx, state), do: {{:ok, notify: msg}, state}
-
-  @impl true
-  def handle_shutdown(_reason, state) do
-    with %{udp_integrated_turn: turn} <- state do
-      Utils.stop_integrated_turn(turn)
-    end
-
-    :ok
-  end
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
