@@ -95,7 +95,6 @@ defmodule Membrane.ICE.Endpoint do
   ]
 
   @lifespan_name "ice_endpoint.lifespan"
-  @ice_restart_span_name "ice_endpoint.ice_restart"
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
