@@ -67,6 +67,7 @@ defmodule Membrane.ICE.Endpoint do
   use Membrane.Endpoint
 
   require Membrane.Logger
+  require Membrane.OpenTelemetry
   require Membrane.TelemetryMetrics
 
   alias Membrane.ICE.{Utils, CandidatePortAssigner}
@@ -92,6 +93,9 @@ defmodule Membrane.ICE.Endpoint do
     @response_sent_event,
     @indication_sent_event
   ]
+
+  @lifespan_name "ice_endpoint.lifespan"
+  @ice_restart_span_name "ice_endpoint.ice_restart"
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
@@ -137,6 +141,15 @@ defmodule Membrane.ICE.Endpoint do
                 spec: Membrane.TelemetryMetrics.label(),
                 default: [],
                 description: "Label passed to Membrane.TelemetryMetrics functions"
+              ],
+              trace_context: [
+                spec: :list | any(),
+                default: [],
+                description: "Trace context for otel propagation"
+              ],
+              parent_span: [
+                spec: any(),
+                default: nil
               ]
 
   def_input_pad :input,
@@ -169,8 +182,15 @@ defmodule Membrane.ICE.Endpoint do
       integrated_turn_options: integrated_turn_options,
       dtls?: dtls?,
       handshake_opts: hsk_opts,
-      telemetry_label: telemetry_label
+      telemetry_label: telemetry_label,
+      trace_context: trace_context,
+      parent_span: parent_span
     } = options
+
+    if trace_context != [], do: Membrane.OpenTelemetry.attach(trace_context)
+    Membrane.OpenTelemetry.register()
+    start_span_opts = if parent_span, do: [parent: parent_span], else: []
+    Membrane.OpenTelemetry.start_span(@lifespan_name, start_span_opts)
 
     for event_name <- @emitted_events do
       Membrane.TelemetryMetrics.register(event_name, telemetry_label)
@@ -254,6 +274,7 @@ defmodule Membrane.ICE.Endpoint do
             udp_integrated_turn: udp_integrated_turn,
             local_ice_pwd: ice_pwd
           })
+          |> start_ice_restart_timer()
 
         actions = [
           notify: {:udp_integrated_turn, udp_integrated_turn},
@@ -355,6 +376,7 @@ defmodule Membrane.ICE.Endpoint do
       })
       |> stop_ice_restart_timer()
 
+    Membrane.OpenTelemetry.add_event(@lifespan_name, :component_ready)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
     {{:ok, actions}, state}
   end
@@ -384,6 +406,8 @@ defmodule Membrane.ICE.Endpoint do
         sdp_offer_arrived?: false
       })
       |> start_ice_restart_timer()
+
+    Membrane.OpenTelemetry.add_event(@lifespan_name, :restart_stream)
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
     {{:ok, notify: {:local_credentials, credentials}}, state}
@@ -415,11 +439,24 @@ defmodule Membrane.ICE.Endpoint do
           "First connectivity check arrived from allocation with pid #{inspect(alloc_pid)}"
         )
 
+        Process.monitor(alloc_pid)
+
+        alloc_span_name(alloc_pid)
+        |> Membrane.OpenTelemetry.start_span(parent_name: @lifespan_name)
+
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
 
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {{:ok, actions}, state}
+  end
+
+  @impl true
+  def handle_other({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
+    alloc_span_name(alloc_pid)
+    |> Membrane.OpenTelemetry.end_span()
+
+    {:ok, state}
   end
 
   @impl true
@@ -464,6 +501,7 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_other(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
+    Membrane.OpenTelemetry.add_event(@lifespan_name, :ice_restart_timeout)
 
     state = %{state | connection_status_sent?: true, pending_connection_ready?: false}
     actions = [notify: {:connection_failed, @stream_id, @component_id}]
@@ -486,6 +524,12 @@ defmodule Membrane.ICE.Endpoint do
     log_debug_connectivity_check(attrs)
 
     Membrane.TelemetryMetrics.execute(@request_received_event, %{}, %{}, state.telemetry_label)
+
+    alloc_span_name(alloc_pid)
+    |> Membrane.OpenTelemetry.add_event(:binding_request_received,
+      allocation: inspect(alloc_pid),
+      use_candidate: attrs.use_candidate
+    )
 
     alloc = state.turn_allocs[alloc_pid]
 
@@ -555,6 +599,13 @@ defmodule Membrane.ICE.Endpoint do
   defp select_alloc(alloc_pid, ctx, state) do
     state = Map.put(state, :selected_alloc, alloc_pid)
     Membrane.Logger.debug("Component #{@component_id} READY")
+
+    Membrane.OpenTelemetry.add_event(@lifespan_name, :new_selected_allocation,
+      allocation: inspect(alloc_pid)
+    )
+
+    alloc_span_name(alloc_pid)
+    |> Membrane.OpenTelemetry.add_event(:allocation_selected)
 
     state = %{state | component_connected?: true}
 
@@ -711,6 +762,7 @@ defmodule Membrane.ICE.Endpoint do
       %{state | connection_status_sent?: true}
       |> stop_ice_restart_timer()
 
+    Membrane.OpenTelemetry.add_event(@lifespan_name, :component_ready)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
 
     {state, actions}
@@ -743,4 +795,6 @@ defmodule Membrane.ICE.Endpoint do
 
     send(alloc_pid, {:send_ice_payload, payload})
   end
+
+  defp alloc_span_name(alloc_pid), do: "ice_endpoint.allocation_#{inspect(alloc_pid)}"
 end
