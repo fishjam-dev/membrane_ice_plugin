@@ -148,8 +148,9 @@ defmodule Membrane.ICE.Endpoint do
                 description: "Trace context for otel propagation"
               ],
               parent_span: [
-                spec: any(),
-                default: nil
+                spec: :opentelemetry.span_ctx() | nil,
+                default: nil,
+                description: "Parent span of #{@life_span}"
               ],
               turn_cleaner_sup: [
                 spec: Supervisor.supervisor(),
