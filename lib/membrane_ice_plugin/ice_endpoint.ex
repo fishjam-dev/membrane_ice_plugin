@@ -94,8 +94,9 @@ defmodule Membrane.ICE.Endpoint do
     @indication_sent_event
   ]
 
-  @life_span "ice_endpoint.life_span"
-  @dtls_handshake_span "ice_endpoint.dtls_handshake"
+  @life_span_id "ice_endpoint.life_span"
+  @dtls_handshake_span_id "ice_endpoint.dtls_handshake"
+  @alloc_span_name "ice_endpoint.turn_allocation"
 
   @typedoc """
   Options defining the behavior of ICE.Endpoint in relation to integrated TURN servers.
@@ -150,7 +151,7 @@ defmodule Membrane.ICE.Endpoint do
               parent_span: [
                 spec: :opentelemetry.span_ctx() | nil,
                 default: nil,
-                description: "Parent span of #{@life_span}"
+                description: "Parent span of #{@life_span_id}"
               ],
               turn_cleaner_sup: [
                 spec: Supervisor.supervisor(),
@@ -195,9 +196,9 @@ defmodule Membrane.ICE.Endpoint do
     } = options
 
     if trace_context != [], do: Membrane.OpenTelemetry.attach(trace_context)
-    Membrane.OpenTelemetry.register()
-    start_span_opts = if parent_span, do: [parent: parent_span], else: []
-    Membrane.OpenTelemetry.start_span(@life_span, start_span_opts)
+    Membrane.OpenTelemetry.register_process()
+    start_span_opts = if parent_span, do: [parent_span: parent_span], else: []
+    Membrane.OpenTelemetry.start_span(@life_span_id, start_span_opts)
 
     for event_name <- @emitted_events do
       Membrane.TelemetryMetrics.register(event_name, telemetry_label)
@@ -399,7 +400,7 @@ defmodule Membrane.ICE.Endpoint do
       })
       |> stop_ice_restart_timer()
 
-    Membrane.OpenTelemetry.add_event(@life_span, :component_ready)
+    Membrane.OpenTelemetry.add_event(@life_span_id, :component_ready)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
     {{:ok, actions}, state}
   end
@@ -430,7 +431,7 @@ defmodule Membrane.ICE.Endpoint do
       })
       |> start_ice_restart_timer()
 
-    Membrane.OpenTelemetry.add_event(@life_span, :restart_stream)
+    Membrane.OpenTelemetry.add_event(@life_span_id, :restart_stream)
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
     {{:ok, notify: {:local_credentials, credentials}}, state}
@@ -464,8 +465,14 @@ defmodule Membrane.ICE.Endpoint do
 
         Process.monitor(alloc_pid)
 
-        alloc_span_name(alloc_pid)
-        |> Membrane.OpenTelemetry.start_span(parent_name: @life_span)
+        span_id = alloc_span_id(alloc_pid)
+
+        Membrane.OpenTelemetry.start_span(span_id,
+          name: @alloc_span_name,
+          parent_id: @life_span_id
+        )
+
+        Membrane.OpenTelemetry.set_attribute(span_id, :pid, inspect(alloc_pid))
 
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
@@ -476,7 +483,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_other({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
-    alloc_span_name(alloc_pid)
+    alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.end_span()
 
     {:ok, state}
@@ -496,7 +503,7 @@ defmodule Membrane.ICE.Endpoint do
         if state.first_dtls_hsk_packet_arrived do
           state
         else
-          Membrane.OpenTelemetry.start_span(@dtls_handshake_span, parent_name: @life_span)
+          Membrane.OpenTelemetry.start_span(@dtls_handshake_span_id, parent_id: @life_span_id)
           %{state | first_dtls_hsk_packet_arrived: true}
         end
 
@@ -532,7 +539,7 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_other(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
-    Membrane.OpenTelemetry.add_event(@life_span, :ice_restart_timeout)
+    Membrane.OpenTelemetry.add_event(@life_span_id, :ice_restart_timeout)
 
     state = %{state | connection_status_sent?: true, pending_connection_ready?: false}
     actions = [notify: {:connection_failed, @stream_id, @component_id}]
@@ -547,7 +554,7 @@ defmodule Membrane.ICE.Endpoint do
 
     Membrane.TelemetryMetrics.execute(@request_received_event, %{}, %{}, state.telemetry_label)
 
-    alloc_span_name(alloc_pid)
+    alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.add_event(:binding_request_received,
       allocation: inspect(alloc_pid),
       use_candidate: attrs.use_candidate
@@ -622,11 +629,11 @@ defmodule Membrane.ICE.Endpoint do
     state = Map.put(state, :selected_alloc, alloc_pid)
     Membrane.Logger.debug("Component #{@component_id} READY")
 
-    Membrane.OpenTelemetry.add_event(@life_span, :new_selected_allocation,
+    Membrane.OpenTelemetry.add_event(@life_span_id, :new_selected_allocation,
       allocation: inspect(alloc_pid)
     )
 
-    alloc_span_name(alloc_pid)
+    alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.add_event(:allocation_selected)
 
     state = %{state | component_connected?: true}
@@ -708,7 +715,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp handle_end_of_hsk(hsk_data, ctx, state) do
-    Membrane.OpenTelemetry.end_span(@dtls_handshake_span)
+    Membrane.OpenTelemetry.end_span(@dtls_handshake_span_id)
 
     hsk_state = state.handshake.state
     event = to_srtp_keying_material_event(hsk_data)
@@ -786,7 +793,7 @@ defmodule Membrane.ICE.Endpoint do
       %{state | connection_status_sent?: true}
       |> stop_ice_restart_timer()
 
-    Membrane.OpenTelemetry.add_event(@life_span, :component_state_ready)
+    Membrane.OpenTelemetry.add_event(@life_span_id, :component_state_ready)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
 
     {state, actions}
@@ -820,5 +827,6 @@ defmodule Membrane.ICE.Endpoint do
     send(alloc_pid, {:send_ice_payload, payload})
   end
 
-  defp alloc_span_name(alloc_pid), do: "ice_endpoint.allocation_#{inspect(alloc_pid)}"
+  # defp alloc_span_id(alloc_pid), do: "alloc_span:#{inspect(alloc_pid)}"
+  defp alloc_span_id(alloc_pid), do: {:turn_allocation_span, alloc_pid}
 end
