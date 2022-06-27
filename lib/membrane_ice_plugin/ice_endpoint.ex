@@ -196,7 +196,6 @@ defmodule Membrane.ICE.Endpoint do
     } = options
 
     if trace_context != [], do: Membrane.OpenTelemetry.attach(trace_context)
-    Membrane.OpenTelemetry.register_process()
     start_span_opts = if parent_span, do: [parent_span: parent_span], else: []
     Membrane.OpenTelemetry.start_span(@life_span_id, start_span_opts)
 
