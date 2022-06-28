@@ -605,23 +605,13 @@ defmodule Membrane.ICE.Endpoint do
     |> Membrane.Logger.debug()
   end
 
-  defp maybe_select_alloc(
-         %Allocation{
-           passed_check_from_browser: true,
-           in_nominated_pair: true
-         } = alloc,
-         ctx,
-         state
-       ) do
-    if state.selected_alloc != alloc.pid do
+  defp maybe_select_alloc(alloc, ctx, state) do
+    if alloc.passed_check_from_browser and alloc.in_nominated_pair and
+         alloc.pid != state.selected_alloc do
       select_alloc(alloc.pid, ctx, state)
     else
       {state, []}
     end
-  end
-
-  defp maybe_select_alloc(_alloc, _ctx, state) do
-    {state, []}
   end
 
   defp select_alloc(alloc_pid, ctx, state) do
