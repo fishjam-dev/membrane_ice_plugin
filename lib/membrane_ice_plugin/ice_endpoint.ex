@@ -237,7 +237,7 @@ defmodule Membrane.ICE.Endpoint do
         ice_pwd = Utils.generate_ice_pwd()
 
         [udp_integrated_turn] =
-          Utils.start_integrated_turn_servers([:udp], state.integrated_turn_options,
+          Utils.start_integrated_turn_servers([:tcp], state.integrated_turn_options,
             parent: self()
           )
 
