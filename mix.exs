@@ -14,11 +14,11 @@ defmodule Membrane.ICE.Mixfile do
       deps: deps(),
 
       # hex
-      description: "Template Plugin for Membrane Multimedia Framework",
+      description: "Plugin for managing ICE connection",
       package: package(),
 
       # docs
-      name: "Membrane Template plugin",
+      name: "Membrane ICE plugin",
       source_url: @github_url,
       homepage_url: "https://membraneframework.org",
       docs: docs()
