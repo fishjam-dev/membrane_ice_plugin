@@ -70,11 +70,11 @@ defmodule Membrane.ICE.Endpoint do
   require Membrane.OpenTelemetry
   require Membrane.TelemetryMetrics
 
-  alias Membrane.ICE.{Utils, CandidatePortAssigner}
+  alias __MODULE__.Allocation
   alias Membrane.Funnel
+  alias Membrane.ICE.{CandidatePortAssigner, Utils}
   alias Membrane.RemoteStream
   alias Membrane.SRTP
-  alias __MODULE__.Allocation
 
   @component_id 1
   @stream_id 1

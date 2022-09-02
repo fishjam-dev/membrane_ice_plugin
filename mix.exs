@@ -8,10 +8,11 @@ defmodule Membrane.ICE.Mixfile do
     [
       app: :membrane_ice_plugin,
       version: @version,
-      elixir: "~> 1.10",
+      elixir: "~> 1.12",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      dialyzer: dialyzer(),
 
       # hex
       description: "Plugin for managing ICE connection",
@@ -38,7 +39,7 @@ defmodule Membrane.ICE.Mixfile do
   defp deps do
     [
       {:membrane_opentelemetry, "~> 0.1.0"},
-      {:membrane_core, "~> 0.10.0"},
+      {:membrane_core, "~> 0.10.2"},
       {:membrane_rtp_format, "~> 0.5.0"},
       {:membrane_funnel_plugin, "~> 0.6.0"},
       {:membrane_telemetry_metrics, "~> 0.1.0"},
@@ -49,6 +50,19 @@ defmodule Membrane.ICE.Mixfile do
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6.1", only: :dev, runtime: false}
     ]
+  end
+
+  defp dialyzer do
+    opts = [
+      flags: [:error_handling]
+    ]
+
+    if System.get_env("CI") == "true" do
+      # Store PLTs in cacheable directory for CI
+      [plt_local_path: "priv/plts", plt_core_path: "priv/plts"] ++ opts
+    else
+      opts
+    end
   end
 
   defp package do
@@ -67,7 +81,8 @@ defmodule Membrane.ICE.Mixfile do
       main: "readme",
       extras: ["README.md", "LICENSE"],
       source_ref: "v#{@version}",
-      nest_modules_by_prefix: [Membrane.ICE]
+      nest_modules_by_prefix: [Membrane.ICE],
+      formatters: ["html"]
     ]
   end
 end

@@ -3,8 +3,8 @@ defmodule Membrane.ICE.IntegrationTest do
 
   import Membrane.Testing.Assertions
 
-  alias Membrane.Testing
   alias Membrane.ICE.Utils
+  alias Membrane.Testing
 
   @magic 225_597_803
   @remote_ice_ufrag "zmg3"
