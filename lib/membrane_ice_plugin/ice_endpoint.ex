@@ -70,11 +70,11 @@ defmodule Membrane.ICE.Endpoint do
   require Membrane.OpenTelemetry
   require Membrane.TelemetryMetrics
 
-  alias Membrane.ICE.{Utils, CandidatePortAssigner}
+  alias __MODULE__.Allocation
   alias Membrane.Funnel
+  alias Membrane.ICE.{CandidatePortAssigner, Utils}
   alias Membrane.RemoteStream
   alias Membrane.SRTP
-  alias __MODULE__.Allocation
 
   @component_id 1
   @stream_id 1
@@ -175,12 +175,7 @@ defmodule Membrane.ICE.Endpoint do
 
     # field `:in_nominated_pair` says, whenether or not, specific allocation
     # is a browser ICE candidate, that belongs to nominated ICE candidates pair
-    defstruct @enforce_keys ++
-                [
-                  magic: nil,
-                  in_nominated_pair: false,
-                  passed_check_from_browser: false
-                ]
+    defstruct @enforce_keys ++ [magic: nil, in_nominated_pair: false]
   end
 
   @impl true
@@ -575,7 +570,7 @@ defmodule Membrane.ICE.Endpoint do
     |> then(&"Sending Binding Success with params: #{inspect(&1)}")
     |> Membrane.Logger.debug()
 
-    alloc = %Allocation{alloc | passed_check_from_browser: true, magic: attrs.magic}
+    alloc = %Allocation{alloc | magic: attrs.magic}
 
     alloc =
       if attrs.use_candidate,
@@ -606,8 +601,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp maybe_select_alloc(alloc, ctx, state) do
-    if alloc.passed_check_from_browser and alloc.in_nominated_pair and
-         alloc.pid != state.selected_alloc do
+    if alloc.in_nominated_pair and alloc.pid != state.selected_alloc do
       select_alloc(alloc.pid, ctx, state)
     else
       {state, []}
