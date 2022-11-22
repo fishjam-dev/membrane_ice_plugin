@@ -161,7 +161,7 @@ defmodule Membrane.ICE.Endpoint do
 
   def_input_pad :input,
     availability: :on_request,
-    accepted_format: :any,
+    accepted_format: _any,
     mode: :pull,
     demand_unit: :buffers
 
@@ -371,7 +371,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other(:gather_candidates, _ctx, state) do
+  def handle_info(:gather_candidates, _ctx, state) do
     msg = {
       :new_candidate_full,
       Utils.generate_fake_ice_candidate({state.fake_candidate_ip, state.candidate_port})
@@ -381,7 +381,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other({:set_remote_credentials, credentials}, _ctx, state)
+  def handle_info({:set_remote_credentials, credentials}, _ctx, state)
       when state.pending_connection_ready? do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
 
@@ -400,7 +400,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other({:set_remote_credentials, credentials}, _ctx, state) do
+  def handle_info({:set_remote_credentials, credentials}, _ctx, state) do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
 
     state =
@@ -413,7 +413,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other(:restart_stream, _ctx, state) do
+  def handle_info(:restart_stream, _ctx, state) do
     ice_ufrag = Utils.generate_ice_ufrag()
     ice_pwd = Utils.generate_ice_pwd()
 
@@ -432,19 +432,19 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other(:peer_candidate_gathering_done, _ctx, state) do
+  def handle_info(:peer_candidate_gathering_done, _ctx, state) do
     {[], state}
   end
 
   @impl true
-  def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
+  def handle_info({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
     {[], state}
   end
 
   @impl true
-  def handle_other(
+  def handle_info(
         {:connectivity_check, attrs, alloc_pid},
         ctx,
         state
@@ -476,7 +476,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
+  def handle_info({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
     alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.end_span()
 
@@ -484,7 +484,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other({:ice_payload, payload}, ctx, state) do
+  def handle_info({:ice_payload, payload}, ctx, state) do
     Membrane.TelemetryMetrics.execute(
       @payload_received_event,
       %{bytes: byte_size(payload)},
@@ -531,7 +531,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other(:ice_restart_timeout, _ctx, state) do
+  def handle_info(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
     Membrane.OpenTelemetry.add_event(@life_span_id, :ice_restart_timeout)
 
@@ -541,7 +541,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_other(msg, _ctx, state), do: {[notify: msg], state}
+  def handle_info(msg, _ctx, state), do: {[notify: msg], state}
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
