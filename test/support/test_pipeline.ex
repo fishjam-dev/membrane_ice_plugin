@@ -7,9 +7,12 @@ defmodule Membrane.ICE.Support.TestPipeline do
 
   @impl true
   def handle_init(opts) do
-    children = %{ice: struct(Membrane.ICE.Endpoint, opts)}
-    spec = %ParentSpec{children: children}
+    structure = [
+      child(:ice, struct(Membrane.ICE.Endpoint, opts))
+    ]
 
-    {{:ok, spec: spec, playback: :playing}, %{}}
+    spec = {structure}
+
+    {[spec: spec, playback: :playing], %{}}
   end
 end
