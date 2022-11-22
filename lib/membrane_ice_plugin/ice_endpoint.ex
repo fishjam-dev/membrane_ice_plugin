@@ -179,7 +179,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_init(options) do
+  def handle_init(_context, options) do
     %__MODULE__{
       integrated_turn_options: integrated_turn_options,
       dtls?: dtls?,
