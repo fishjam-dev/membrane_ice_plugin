@@ -161,13 +161,13 @@ defmodule Membrane.ICE.Endpoint do
 
   def_input_pad :input,
     availability: :on_request,
-    caps: :any,
+    accepted_format: :any,
     mode: :pull,
     demand_unit: :buffers
 
   def_output_pad :output,
     availability: :on_request,
-    caps: {RemoteStream, content_format: nil, type: :packetized},
+    accepted_format: {RemoteStream, content_format: nil, type: :packetized},
     mode: :push
 
   defmodule Allocation do
@@ -218,7 +218,7 @@ defmodule Membrane.ICE.Endpoint do
       first_dtls_hsk_packet_arrived: false
     }
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
@@ -260,10 +260,10 @@ defmodule Membrane.ICE.Endpoint do
           notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
         ]
 
-        {{:ok, actions}, state}
+        {actions, state}
 
       {:error, :no_free_candidate_port} = err ->
-        {err, state}
+        raise {err, state}
     end
   end
 
@@ -300,17 +300,17 @@ defmodule Membrane.ICE.Endpoint do
           notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
         ]
 
-        {{:ok, actions}, state}
+        {actions, state}
 
       {:error, :no_free_candidate_port} = err ->
-        {err, state}
+        raise {err, state}
     end
   end
 
   @impl true
   def handle_pad_added(Pad.ref(:input, @component_id), ctx, state) do
     actions = maybe_send_demands_actions(ctx, state)
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   @impl true
@@ -320,12 +320,12 @@ defmodule Membrane.ICE.Endpoint do
         %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
     actions = maybe_send_caps(ctx) ++ [event: {pad, state.handshake.keying_material_event}]
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   @impl true
   def handle_pad_added(Pad.ref(:output, @component_id), ctx, state) do
-    {{:ok, maybe_send_caps(ctx)}, state}
+    {maybe_send_caps(ctx), state}
   end
 
   @impl true
@@ -337,7 +337,7 @@ defmodule Membrane.ICE.Endpoint do
       )
       when is_pid(alloc) do
     send_ice_payload(alloc, payload, state.telemetry_label)
-    {{:ok, demand: pad}, state}
+    {[demand: pad], state}
   end
 
   @impl true
@@ -347,11 +347,11 @@ defmodule Membrane.ICE.Endpoint do
         _ctx,
         %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    {{:ok, event: {pad, state.handshake.keying_material_event}}, state}
+    {[event: {pad, state.handshake.keying_material_event}], state}
   end
 
   @impl true
-  def handle_event(_pad, _event, _ctx, state), do: {:ok, state}
+  def handle_event(_pad, _event, _ctx, state), do: {[], state}
 
   @impl true
   def handle_tick(:keepalive_timer, _ctx, state) do
@@ -367,7 +367,7 @@ defmodule Membrane.ICE.Endpoint do
       )
     end
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
@@ -377,7 +377,7 @@ defmodule Membrane.ICE.Endpoint do
       Utils.generate_fake_ice_candidate({state.fake_candidate_ip, state.candidate_port})
     }
 
-    {{:ok, notify: msg}, state}
+    {[notify: msg], state}
   end
 
   @impl true
@@ -396,7 +396,7 @@ defmodule Membrane.ICE.Endpoint do
 
     Membrane.OpenTelemetry.add_event(@life_span_id, :component_ready)
     actions = [notify: {:connection_ready, @stream_id, @component_id}]
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   @impl true
@@ -409,7 +409,7 @@ defmodule Membrane.ICE.Endpoint do
         sdp_offer_arrived?: true
       })
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
@@ -428,19 +428,19 @@ defmodule Membrane.ICE.Endpoint do
     Membrane.OpenTelemetry.add_event(@life_span_id, :restart_stream)
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
-    {{:ok, notify: {:local_credentials, credentials}}, state}
+    {[notify: {:local_credentials, credentials}], state}
   end
 
   @impl true
   def handle_other(:peer_candidate_gathering_done, _ctx, state) do
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
   def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
@@ -472,7 +472,7 @@ defmodule Membrane.ICE.Endpoint do
       end
 
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   @impl true
@@ -480,7 +480,7 @@ defmodule Membrane.ICE.Endpoint do
     alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.end_span()
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
@@ -526,7 +526,7 @@ defmodule Membrane.ICE.Endpoint do
             [buffer: {out_pad, %Membrane.Buffer{payload: payload}}]
         end
 
-      {{:ok, actions}, state}
+      {actions, state}
     end
   end
 
@@ -537,11 +537,11 @@ defmodule Membrane.ICE.Endpoint do
 
     state = %{state | connection_status_sent?: true, pending_connection_ready?: false}
     actions = [notify: {:connection_failed, @stream_id, @component_id}]
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   @impl true
-  def handle_other(msg, _ctx, state), do: {{:ok, notify: msg}, state}
+  def handle_other(msg, _ctx, state), do: {[notify: msg], state}
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
@@ -664,23 +664,23 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp handle_process_result(:handshake_want_read, _ctx, state) do
-    {:ok, state}
+    {[], state}
   end
 
   defp handle_process_result({:ok, _packets}, _ctx, state) do
     Membrane.Logger.warn("Got regular handshake packet. Ignoring for now.")
-    {:ok, state}
+    {[], state}
   end
 
   defp handle_process_result({:handshake_packets, packets}, _ctx, state) do
     if state.component_connected? do
       send_ice_payload(state.selected_alloc, packets, state.telemetry_label)
-      {:ok, state}
+      {[], state}
     else
       # if connection is not ready yet cache data
       # TODO maybe try to send?
       state = %{state | cached_hsk_packets: packets}
-      {:ok, state}
+      {[], state}
     end
   end
 
@@ -694,7 +694,7 @@ defmodule Membrane.ICE.Endpoint do
 
   defp handle_process_result({:connection_closed, reason}, _ctx, state) do
     Membrane.Logger.debug("Connection closed, reason: #{inspect(reason)}. Ignoring for now.")
-    {:ok, state}
+    {[], state}
   end
 
   defp handle_end_of_hsk(hsk_data, ctx, state) do
@@ -717,7 +717,7 @@ defmodule Membrane.ICE.Endpoint do
         maybe_send_demands_actions(ctx, state) ++
         maybe_send_keying_material_to_output(ctx, state)
 
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   defp handle_component_state_ready(ctx, state) do
