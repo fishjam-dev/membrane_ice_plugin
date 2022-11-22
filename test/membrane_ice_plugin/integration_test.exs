@@ -15,7 +15,7 @@ defmodule Membrane.ICE.IntegrationTest do
 
   test "Membrane.ICE.Endpoint connectivity checks and sends proper notifications" do
     {:ok, pid} =
-      Testing.Pipeline.start_link(%Testing.Pipeline.Options{
+      Testing.Pipeline.start_link(
         module: Membrane.ICE.Support.TestPipeline,
         custom_args: [
           dtls?: false,
@@ -23,7 +23,7 @@ defmodule Membrane.ICE.IntegrationTest do
             ip: {127, 0, 0, 1}
           ]
         ]
-      })
+      )
 
     assert_pipeline_notified(pid, :ice, {:udp_integrated_turn, _turn})
 

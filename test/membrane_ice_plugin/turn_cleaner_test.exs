@@ -19,7 +19,7 @@ defmodule Membrane.ICE.TURNCleanerTest do
 
     {:ok, pipeline} = Membrane.Testing.Pipeline.start_link(children: children)
 
-    assert_pipeline_playback_changed(pipeline, :prepared, :playing)
+    assert_pipeline_play(pipeline)
 
     assert %{specs: 1, active: 1, supervisors: 0, workers: 1} ==
              DynamicSupervisor.count_children(turn_cleaner_sup)
