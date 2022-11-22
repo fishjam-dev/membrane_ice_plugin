@@ -6,7 +6,7 @@ defmodule Membrane.ICE.Support.TestPipeline do
   require Membrane.Logger
 
   @impl true
-  def handle_init(opts) do
+  def handle_init(_context, opts) do
     structure = [
       child(:ice, struct(Membrane.ICE.Endpoint, opts))
     ]
