@@ -729,7 +729,7 @@ defmodule Membrane.ICE.Endpoint do
   defp maybe_send_demands_actions(ctx, state) do
     pad = Pad.ref(:input, @component_id)
     # if something is linked, component is ready and handshake is done then send demands
-    if Map.has_key?(ctx.pads, pad) and state.component_ready? and
+    if ctx.playback_state == :playing and Map.has_key?(ctx.pads, pad) and state.component_ready? and
          state.handshake.status == :finished do
       event = if state.dtls?, do: [event: {pad, state.handshake.keying_material_event}], else: []
       event ++ [demand: pad]
