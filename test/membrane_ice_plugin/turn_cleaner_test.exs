@@ -1,6 +1,7 @@
 defmodule Membrane.ICE.TURNCleanerTest do
   use ExUnit.Case
 
+  import Membrane.ChildrenSpec, only: [child: 2]
   import Membrane.Testing.Assertions
 
   test "TURNCleaner is created and destroyed properly" do
@@ -9,15 +10,15 @@ defmodule Membrane.ICE.TURNCleanerTest do
     assert %{specs: 0, active: 0, supervisors: 0, workers: 0} ==
              DynamicSupervisor.count_children(turn_cleaner_sup)
 
-    children = [
-      ice_endpoint: %Membrane.ICE.Endpoint{
-        dtls?: false,
-        integrated_turn_options: [ip: {127, 0, 0, 1}],
-        turn_cleaner_sup: turn_cleaner_sup
-      }
-    ]
+    ice_endpoint = %Membrane.ICE.Endpoint{
+      dtls?: false,
+      integrated_turn_options: [ip: {127, 0, 0, 1}],
+      turn_cleaner_sup: turn_cleaner_sup
+    }
 
-    {:ok, pipeline} = Membrane.Testing.Pipeline.start_link(children: children)
+    children = child(:ice_endpoint, ice_endpoint)
+
+    pipeline = Membrane.Testing.Pipeline.start_link_supervised!(structure: children)
 
     assert_pipeline_play(pipeline)
 

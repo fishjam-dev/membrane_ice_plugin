@@ -14,8 +14,8 @@ defmodule Membrane.ICE.IntegrationTest do
   @stream_id 1
 
   test "Membrane.ICE.Endpoint connectivity checks and sends proper notifications" do
-    {:ok, pid} =
-      Testing.Pipeline.start_link(
+    pipeline =
+      Testing.Pipeline.start_link_supervised!(
         module: Membrane.ICE.Support.TestPipeline,
         custom_args: [
           dtls?: false,
@@ -25,20 +25,25 @@ defmodule Membrane.ICE.IntegrationTest do
         ]
       )
 
-    assert_pipeline_notified(pid, :ice, {:udp_integrated_turn, _turn})
+    assert_pipeline_notified(pipeline, :ice, {:udp_integrated_turn, _turn})
 
-    Testing.Pipeline.message_child(pid, :ice, :gather_candidates)
+    Testing.Pipeline.message_child(pipeline, :ice, :gather_candidates)
 
-    assert_pipeline_notified(pid, :ice, {:handshake_init_data, @component_id, _hsk_init_data})
-    assert_pipeline_notified(pid, :ice, {:local_credentials, credentials})
-    assert_pipeline_notified(pid, :ice, {:new_candidate_full, candidate})
+    assert_pipeline_notified(
+      pipeline,
+      :ice,
+      {:handshake_init_data, @component_id, _hsk_init_data}
+    )
+
+    assert_pipeline_notified(pipeline, :ice, {:local_credentials, credentials})
+    assert_pipeline_notified(pipeline, :ice, {:new_candidate_full, candidate})
     assert is_binary(candidate)
 
     [local_ice_ufrag, _local_ice_pwd] = String.split(credentials)
 
     msg = {:set_remote_credentials, "#{@remote_ice_ufrag} #{@remote_ice_pwd}"}
-    Testing.Pipeline.message_child(pid, :ice, msg)
-    Testing.Pipeline.message_child(pid, :ice, :sdp_offer_arrived)
+    Testing.Pipeline.message_child(pipeline, :ice, msg)
+    Testing.Pipeline.message_child(pipeline, :ice, :sdp_offer_arrived)
 
     trid = Utils.generate_transaction_id()
     username = "#{@remote_ice_ufrag}:#{local_ice_ufrag}"
@@ -55,7 +60,7 @@ defmodule Membrane.ICE.IntegrationTest do
     ]
 
     msg = {:connectivity_check, binding_request, self()}
-    Testing.Pipeline.message_child(pid, :ice, msg)
+    Testing.Pipeline.message_child(pipeline, :ice, msg)
 
     assert_receive(
       {:send_connectivity_check, stun_msg},
@@ -83,7 +88,7 @@ defmodule Membrane.ICE.IntegrationTest do
     ]
 
     msg = {:connectivity_check, binding_request, self()}
-    Testing.Pipeline.message_child(pid, :ice, msg)
+    Testing.Pipeline.message_child(pipeline, :ice, msg)
 
     assert_receive(
       {:send_connectivity_check, stun_msg},
@@ -96,8 +101,8 @@ defmodule Membrane.ICE.IntegrationTest do
     assert trid == stun_msg[:trid]
     assert username == stun_msg[:username]
 
-    assert_pipeline_notified(pid, :ice, {:connection_ready, @stream_id, @component_id})
+    assert_pipeline_notified(pipeline, :ice, {:connection_ready, @stream_id, @component_id})
 
-    Testing.Pipeline.terminate(pid, blocking?: true)
+    Testing.Pipeline.terminate(pipeline, blocking?: true)
   end
 end

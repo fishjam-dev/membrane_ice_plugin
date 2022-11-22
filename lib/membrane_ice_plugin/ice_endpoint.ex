@@ -253,11 +253,11 @@ defmodule Membrane.ICE.Endpoint do
           |> start_ice_restart_timer()
 
         actions = [
-          caps: {Pad.ref(:output, @component_id), %RemoteStream{type: :packetized}},
+          stream_format: {Pad.ref(:output, @component_id), %RemoteStream{type: :packetized}},
           start_timer: {:keepalive_timer, @time_between_keepalives},
-          notify: {:udp_integrated_turn, udp_integrated_turn},
-          notify: {:handshake_init_data, @component_id, fingerprint},
-          notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+          notify_parent: {:udp_integrated_turn, udp_integrated_turn},
+          notify_parent: {:handshake_init_data, @component_id, fingerprint},
+          notify_parent: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
         ]
 
         {actions, state}
@@ -295,9 +295,9 @@ defmodule Membrane.ICE.Endpoint do
           |> start_ice_restart_timer()
 
         actions = [
-          notify: {:udp_integrated_turn, udp_integrated_turn},
-          notify: {:handshake_init_data, @component_id, nil},
-          notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+          notify_parent: {:udp_integrated_turn, udp_integrated_turn},
+          notify_parent: {:handshake_init_data, @component_id, nil},
+          notify_parent: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
         ]
 
         {actions, state}
@@ -371,17 +371,17 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_info(:gather_candidates, _ctx, state) do
+  def handle_parent_notification(:gather_candidates, _ctx, state) do
     msg = {
       :new_candidate_full,
       Utils.generate_fake_ice_candidate({state.fake_candidate_ip, state.candidate_port})
     }
 
-    {[notify: msg], state}
+    {[notify_parent: msg], state}
   end
 
   @impl true
-  def handle_info({:set_remote_credentials, credentials}, _ctx, state)
+  def handle_parent_notification({:set_remote_credentials, credentials}, _ctx, state)
       when state.pending_connection_ready? do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
 
@@ -395,12 +395,12 @@ defmodule Membrane.ICE.Endpoint do
       |> stop_ice_restart_timer()
 
     Membrane.OpenTelemetry.add_event(@life_span_id, :component_ready)
-    actions = [notify: {:connection_ready, @stream_id, @component_id}]
+    actions = [notify_parent: {:connection_ready, @stream_id, @component_id}]
     {actions, state}
   end
 
   @impl true
-  def handle_info({:set_remote_credentials, credentials}, _ctx, state) do
+  def handle_parent_notification({:set_remote_credentials, credentials}, _ctx, state) do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
 
     state =
@@ -413,7 +413,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_info(:restart_stream, _ctx, state) do
+  def handle_parent_notification(:restart_stream, _ctx, state) do
     ice_ufrag = Utils.generate_ice_ufrag()
     ice_pwd = Utils.generate_ice_pwd()
 
@@ -428,23 +428,23 @@ defmodule Membrane.ICE.Endpoint do
     Membrane.OpenTelemetry.add_event(@life_span_id, :restart_stream)
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
-    {[notify: {:local_credentials, credentials}], state}
+    {[notify_parent: {:local_credentials, credentials}], state}
   end
 
   @impl true
-  def handle_info(:peer_candidate_gathering_done, _ctx, state) do
+  def handle_parent_notification(:peer_candidate_gathering_done, _ctx, state) do
     {[], state}
   end
 
   @impl true
-  def handle_info({:alloc_deleted, alloc_pid}, _ctx, state) do
+  def handle_parent_notification({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
     {[], state}
   end
 
   @impl true
-  def handle_info(
+  def handle_parent_notification(
         {:connectivity_check, attrs, alloc_pid},
         ctx,
         state
@@ -476,7 +476,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_info({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
+  def handle_parent_notification({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
     alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.end_span()
 
@@ -484,7 +484,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_info({:ice_payload, payload}, ctx, state) do
+  def handle_parent_notification({:ice_payload, payload}, ctx, state) do
     Membrane.TelemetryMetrics.execute(
       @payload_received_event,
       %{bytes: byte_size(payload)},
@@ -531,17 +531,17 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_info(:ice_restart_timeout, _ctx, state) do
+  def handle_parent_notification(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
     Membrane.OpenTelemetry.add_event(@life_span_id, :ice_restart_timeout)
 
     state = %{state | connection_status_sent?: true, pending_connection_ready?: false}
-    actions = [notify: {:connection_failed, @stream_id, @component_id}]
+    actions = [notify_parent: {:connection_failed, @stream_id, @component_id}]
     {actions, state}
   end
 
   @impl true
-  def handle_info(msg, _ctx, state), do: {[notify: msg], state}
+  def handle_parent_notification(msg, _ctx, state), do: {[notify_parent: msg], state}
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
@@ -750,7 +750,7 @@ defmodule Membrane.ICE.Endpoint do
     pad = Pad.ref(:output, @component_id)
 
     if ctx.playback_state == :playing do
-      [caps: {pad, %RemoteStream{}}]
+      [stream_format: {pad, %RemoteStream{}}]
     else
       []
     end
@@ -777,7 +777,7 @@ defmodule Membrane.ICE.Endpoint do
       |> stop_ice_restart_timer()
 
     Membrane.OpenTelemetry.add_event(@life_span_id, :component_state_ready)
-    actions = [notify: {:connection_ready, @stream_id, @component_id}]
+    actions = [notify_parent: {:connection_ready, @stream_id, @component_id}]
 
     {state, actions}
   end
