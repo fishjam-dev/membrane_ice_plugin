@@ -39,13 +39,13 @@ defmodule Membrane.ICE.Mixfile do
   defp deps do
     [
       {:membrane_opentelemetry, "~> 0.1.0"},
-      {:membrane_core, "~> 0.10.2"},
-      {:membrane_rtp_format, "~> 0.5.0"},
-      {:membrane_funnel_plugin, "~> 0.6.0"},
+      {:membrane_core, "~> 0.11"},
+      {:membrane_rtp_format, "~> 0.6.0"},
+      {:membrane_funnel_plugin, "~> 0.7.0"},
       {:membrane_telemetry_metrics, "~> 0.1.0"},
-      {:bunch, "~> 1.3.0"},
+      {:bunch, "~> 1.5.0"},
       {:fake_turn, "~> 0.2.0"},
-      {:ex_dtls, "~> 0.11.0"},
+      {:ex_dtls, "~> 0.11.1"},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6.1", only: :dev, runtime: false}
