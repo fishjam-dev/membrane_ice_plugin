@@ -31,6 +31,13 @@ brew install openssl
 export PKG_CONFIG_PATH="/usr/local/opt/openssl@1.1/lib/pkgconfig"
 ```
 
+To run tests: 
+```
+export LDFLAGS="-L/usr/local/opt/openssl@1.1/lib"
+export CFLAGS="-I/usr/local/opt/openssl@1.1/include/"
+export CPPFLAGS="-I/usr/local/opt/openssl@1.1/include/"
+```
+
 ## Usage
 
 See `Membrane.WebRTC.EndpointBin` in [membrane_webrtc_plugin](https://hex.pm/packages/membrane_webrtc_plugin) for usage example
