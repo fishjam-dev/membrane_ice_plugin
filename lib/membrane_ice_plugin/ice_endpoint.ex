@@ -524,9 +524,9 @@ defmodule Membrane.ICE.Endpoint do
 
             []
 
-          ctx.playback_state != :playing ->
+          ctx.playback != :playing ->
             Membrane.Logger.debug(
-              "Received message in playback state: #{ctx.playback_state}. Ignoring."
+              "Received message in playback state: #{ctx.playback}. Ignoring."
             )
 
             []
@@ -758,7 +758,7 @@ defmodule Membrane.ICE.Endpoint do
   defp maybe_send_stream_format(ctx) do
     pad = Pad.ref(:output, @component_id)
 
-    if ctx.playback_state == :playing do
+    if ctx.playback == :playing do
       [stream_format: {pad, %RemoteStream{}}]
     else
       []
