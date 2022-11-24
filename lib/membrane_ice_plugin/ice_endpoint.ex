@@ -319,13 +319,15 @@ defmodule Membrane.ICE.Endpoint do
         ctx,
         %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    actions = maybe_send_caps(ctx) ++ [event: {pad, state.handshake.keying_material_event}]
+    actions =
+      maybe_send_stream_format(ctx) ++ [event: {pad, state.handshake.keying_material_event}]
+
     {actions, state}
   end
 
   @impl true
   def handle_pad_added(Pad.ref(:output, @component_id), ctx, state) do
-    {maybe_send_caps(ctx), state}
+    {maybe_send_stream_format(ctx), state}
   end
 
   @impl true
@@ -746,7 +748,7 @@ defmodule Membrane.ICE.Endpoint do
       else: []
   end
 
-  defp maybe_send_caps(ctx) do
+  defp maybe_send_stream_format(ctx) do
     pad = Pad.ref(:output, @component_id)
 
     if ctx.playback_state == :playing do
