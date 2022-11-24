@@ -263,7 +263,7 @@ defmodule Membrane.ICE.Endpoint do
         {actions, state}
 
       {:error, :no_free_candidate_port} = err ->
-        raise {err, state}
+        raise "ICE: No free candidate port available. #{inspect(err)}"
     end
   end
 
