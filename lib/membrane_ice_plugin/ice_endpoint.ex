@@ -372,6 +372,13 @@ defmodule Membrane.ICE.Endpoint do
     {[], state}
   end
 
+  # TODO Use mocking turn server instead of this
+  @impl true
+  def handle_parent_notification(:test_get_pid, _ctx, state) do
+    msg = {:test_get_pid, self()}
+    {[notify_parent: msg], state}
+  end
+
   @impl true
   def handle_parent_notification(:gather_candidates, _ctx, state) do
     msg = {
@@ -439,14 +446,14 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_parent_notification({:alloc_deleted, alloc_pid}, _ctx, state) do
+  def handle_info({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
     {[], state}
   end
 
   @impl true
-  def handle_parent_notification(
+  def handle_info(
         {:connectivity_check, attrs, alloc_pid},
         ctx,
         state
@@ -478,7 +485,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_parent_notification({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
+  def handle_info({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
     alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.end_span()
 
@@ -486,7 +493,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_parent_notification({:ice_payload, payload}, ctx, state) do
+  def handle_info({:ice_payload, payload}, ctx, state) do
     Membrane.TelemetryMetrics.execute(
       @payload_received_event,
       %{bytes: byte_size(payload)},
@@ -533,7 +540,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_parent_notification(:ice_restart_timeout, _ctx, state) do
+  def handle_info(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
     Membrane.OpenTelemetry.add_event(@life_span_id, :ice_restart_timeout)
 
@@ -543,7 +550,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_parent_notification(msg, _ctx, state), do: {[notify_parent: msg], state}
+  def handle_info(msg, _ctx, state), do: {[notify_parent: msg], state}
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)

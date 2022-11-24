@@ -41,9 +41,17 @@ defmodule Membrane.ICE.IntegrationTest do
 
     [local_ice_ufrag, _local_ice_pwd] = String.split(credentials)
 
+    Testing.Pipeline.message_child(pipeline, :ice, :test_get_pid)
+
+    assert_pipeline_notified(
+      pipeline,
+      :ice,
+      {:test_get_pid, ice_pid}
+    )
+
     msg = {:set_remote_credentials, "#{@remote_ice_ufrag} #{@remote_ice_pwd}"}
     Testing.Pipeline.message_child(pipeline, :ice, msg)
-    Testing.Pipeline.message_child(pipeline, :ice, :sdp_offer_arrived)
+    # Testing.Pipeline.message_child(pipeline, :ice, :sdp_offer_arrived)
 
     trid = Utils.generate_transaction_id()
     username = "#{@remote_ice_ufrag}:#{local_ice_ufrag}"
@@ -60,7 +68,7 @@ defmodule Membrane.ICE.IntegrationTest do
     ]
 
     msg = {:connectivity_check, binding_request, self()}
-    Testing.Pipeline.message_child(pipeline, :ice, msg)
+    send(ice_pid, msg)
 
     assert_receive(
       {:send_connectivity_check, stun_msg},
@@ -88,7 +96,7 @@ defmodule Membrane.ICE.IntegrationTest do
     ]
 
     msg = {:connectivity_check, binding_request, self()}
-    Testing.Pipeline.message_child(pipeline, :ice, msg)
+    send(ice_pid, msg)
 
     assert_receive(
       {:send_connectivity_check, stun_msg},
