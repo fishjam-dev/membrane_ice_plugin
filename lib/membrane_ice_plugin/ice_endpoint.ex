@@ -222,7 +222,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_setup(_ctx, %{dtls?: true} = state) do
+  def handle_playing(_ctx, %{dtls?: true} = state) do
     case CandidatePortAssigner.assign_candidate_port() do
       {:ok, candidate_port} ->
         {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
@@ -268,7 +268,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_setup(_ctx, state) do
+  def handle_playing(_ctx, state) do
     case CandidatePortAssigner.assign_candidate_port() do
       {:ok, candidate_port} ->
         ice_ufrag = Utils.generate_ice_ufrag()
