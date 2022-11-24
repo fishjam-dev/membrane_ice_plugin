@@ -51,7 +51,6 @@ defmodule Membrane.ICE.IntegrationTest do
 
     msg = {:set_remote_credentials, "#{@remote_ice_ufrag} #{@remote_ice_pwd}"}
     Testing.Pipeline.message_child(pipeline, :ice, msg)
-    # Testing.Pipeline.message_child(pipeline, :ice, :sdp_offer_arrived)
 
     trid = Utils.generate_transaction_id()
     username = "#{@remote_ice_ufrag}:#{local_ice_ufrag}"
