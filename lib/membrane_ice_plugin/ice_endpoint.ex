@@ -167,7 +167,7 @@ defmodule Membrane.ICE.Endpoint do
 
   def_output_pad :output,
     availability: :on_request,
-    accepted_format: {RemoteStream, content_format: nil, type: :packetized},
+    accepted_format: %RemoteStream{content_format: nil, type: :packetized},
     mode: :push
 
   defmodule Allocation do
