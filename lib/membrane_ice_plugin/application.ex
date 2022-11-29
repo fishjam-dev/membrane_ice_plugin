@@ -4,8 +4,7 @@ defmodule Membrane.ICE.Application do
   use Application
 
   alias Membrane.ICE.{
-    CandidatePortAssigner,
-    TURNManager
+    CandidatePortAssigner
   }
 
   @impl true
@@ -14,12 +13,7 @@ defmodule Membrane.ICE.Application do
       %{
         id: CandidatePortAssigner,
         start: {CandidatePortAssigner, :start_link, []}
-      },
-      %{
-        id: TURNManager,
-        start: {TURNManager, :start_link, []}
-      },
-      {DynamicSupervisor, strategy: :one_for_one, name: Membrane.ICE.TURNCleaner.Sup}
+      }
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: __MODULE__)

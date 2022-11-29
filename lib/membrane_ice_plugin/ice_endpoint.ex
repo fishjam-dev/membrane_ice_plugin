@@ -152,11 +152,6 @@ defmodule Membrane.ICE.Endpoint do
                 spec: :opentelemetry.span_ctx() | nil,
                 default: nil,
                 description: "Parent span of #{@life_span_id}"
-              ],
-              turn_cleaner_sup: [
-                spec: Supervisor.supervisor(),
-                default: Membrane.ICE.TURNCleaner.Sup,
-                description: "Supervisor under which TURN cleaner should be spawned"
               ]
 
   def_input_pad :input,
@@ -186,8 +181,7 @@ defmodule Membrane.ICE.Endpoint do
       handshake_opts: hsk_opts,
       telemetry_label: telemetry_label,
       trace_context: trace_context,
-      parent_span: parent_span,
-      turn_cleaner_sup: turn_cleaner_sup
+      parent_span: parent_span
     } = options
 
     if trace_context != [], do: Membrane.OpenTelemetry.attach(trace_context)
@@ -207,7 +201,6 @@ defmodule Membrane.ICE.Endpoint do
       dtls?: dtls?,
       hsk_opts: hsk_opts,
       telemetry_label: telemetry_label,
-      turn_cleaner_sup: turn_cleaner_sup,
       component_connected?: false,
       cached_hsk_packets: nil,
       component_ready?: false,
@@ -222,7 +215,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_playing(_ctx, %{dtls?: true} = state) do
+  def handle_playing(ctx, %{dtls?: true} = state) do
     case CandidatePortAssigner.assign_candidate_port() do
       {:ok, candidate_port} ->
         {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
@@ -236,12 +229,9 @@ defmodule Membrane.ICE.Endpoint do
             parent: self()
           )
 
-        {:ok, _pid} =
-          Membrane.ICE.TURNCleaner.start_under(
-            state.turn_cleaner_sup,
-            self(),
-            udp_integrated_turn
-          )
+        Membrane.ResourceGuard.register(ctx.resource_guard, fn ->
+          Membrane.ICE.Utils.stop_integrated_turn(udp_integrated_turn)
+        end)
 
         state =
           Map.merge(state, %{
@@ -268,7 +258,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_playing(_ctx, state) do
+  def handle_playing(ctx, state) do
     case CandidatePortAssigner.assign_candidate_port() do
       {:ok, candidate_port} ->
         ice_ufrag = Utils.generate_ice_ufrag()
@@ -279,12 +269,9 @@ defmodule Membrane.ICE.Endpoint do
             parent: self()
           )
 
-        {:ok, _pid} =
-          Membrane.ICE.TURNCleaner.start_under(
-            state.turn_cleaner_sup,
-            self(),
-            udp_integrated_turn
-          )
+        Membrane.ResourceGuard.register(ctx.resource_guard, fn ->
+          Membrane.ICE.Utils.stop_integrated_turn(udp_integrated_turn)
+        end)
 
         state =
           Map.merge(state, %{
