@@ -4,7 +4,8 @@ defmodule Membrane.ICE.Application do
   use Application
 
   alias Membrane.ICE.{
-    CandidatePortAssigner
+    CandidatePortAssigner,
+    TURNManager
   }
 
   @impl true
