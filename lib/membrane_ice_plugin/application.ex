@@ -13,6 +13,10 @@ defmodule Membrane.ICE.Application do
       %{
         id: CandidatePortAssigner,
         start: {CandidatePortAssigner, :start_link, []}
+      },
+      %{
+        id: TURNManager,
+        start: {TURNManager, :start_link, []}
       }
     ]
 
