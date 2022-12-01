@@ -152,22 +152,17 @@ defmodule Membrane.ICE.Endpoint do
                 spec: :opentelemetry.span_ctx() | nil,
                 default: nil,
                 description: "Parent span of #{@life_span_id}"
-              ],
-              turn_cleaner_sup: [
-                spec: Supervisor.supervisor(),
-                default: Membrane.ICE.TURNCleaner.Sup,
-                description: "Supervisor under which TURN cleaner should be spawned"
               ]
 
   def_input_pad :input,
     availability: :on_request,
-    caps: :any,
+    accepted_format: _any,
     mode: :pull,
     demand_unit: :buffers
 
   def_output_pad :output,
     availability: :on_request,
-    caps: {RemoteStream, content_format: nil, type: :packetized},
+    accepted_format: %RemoteStream{content_format: nil, type: :packetized},
     mode: :push
 
   defmodule Allocation do
@@ -179,15 +174,14 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_init(options) do
+  def handle_init(_context, options) do
     %__MODULE__{
       integrated_turn_options: integrated_turn_options,
       dtls?: dtls?,
       handshake_opts: hsk_opts,
       telemetry_label: telemetry_label,
       trace_context: trace_context,
-      parent_span: parent_span,
-      turn_cleaner_sup: turn_cleaner_sup
+      parent_span: parent_span
     } = options
 
     if trace_context != [], do: Membrane.OpenTelemetry.attach(trace_context)
@@ -207,7 +201,6 @@ defmodule Membrane.ICE.Endpoint do
       dtls?: dtls?,
       hsk_opts: hsk_opts,
       telemetry_label: telemetry_label,
-      turn_cleaner_sup: turn_cleaner_sup,
       component_connected?: false,
       cached_hsk_packets: nil,
       component_ready?: false,
@@ -218,11 +211,11 @@ defmodule Membrane.ICE.Endpoint do
       first_dtls_hsk_packet_arrived: false
     }
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
-  def handle_prepared_to_playing(_ctx, %{dtls?: true} = state) do
+  def handle_playing(ctx, %{dtls?: true} = state) do
     case CandidatePortAssigner.assign_candidate_port() do
       {:ok, candidate_port} ->
         {:ok, dtls} = ExDTLS.start_link(state.hsk_opts)
@@ -236,12 +229,9 @@ defmodule Membrane.ICE.Endpoint do
             parent: self()
           )
 
-        {:ok, _pid} =
-          Membrane.ICE.TURNCleaner.start_under(
-            state.turn_cleaner_sup,
-            self(),
-            udp_integrated_turn
-          )
+        Membrane.ResourceGuard.register(ctx.resource_guard, fn ->
+          Membrane.ICE.Utils.stop_integrated_turn(udp_integrated_turn)
+        end)
 
         state =
           Map.merge(state, %{
@@ -253,22 +243,22 @@ defmodule Membrane.ICE.Endpoint do
           |> start_ice_restart_timer()
 
         actions = [
-          caps: {Pad.ref(:output, @component_id), %RemoteStream{type: :packetized}},
+          stream_format: {Pad.ref(:output, @component_id), %RemoteStream{type: :packetized}},
           start_timer: {:keepalive_timer, @time_between_keepalives},
-          notify: {:udp_integrated_turn, udp_integrated_turn},
-          notify: {:handshake_init_data, @component_id, fingerprint},
-          notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+          notify_parent: {:udp_integrated_turn, udp_integrated_turn},
+          notify_parent: {:handshake_init_data, @component_id, fingerprint},
+          notify_parent: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
         ]
 
-        {{:ok, actions}, state}
+        {actions, state}
 
       {:error, :no_free_candidate_port} = err ->
-        {err, state}
+        raise "ICE: No free candidate port available. #{inspect(err)}"
     end
   end
 
   @impl true
-  def handle_prepared_to_playing(_ctx, state) do
+  def handle_playing(ctx, state) do
     case CandidatePortAssigner.assign_candidate_port() do
       {:ok, candidate_port} ->
         ice_ufrag = Utils.generate_ice_ufrag()
@@ -279,12 +269,9 @@ defmodule Membrane.ICE.Endpoint do
             parent: self()
           )
 
-        {:ok, _pid} =
-          Membrane.ICE.TURNCleaner.start_under(
-            state.turn_cleaner_sup,
-            self(),
-            udp_integrated_turn
-          )
+        Membrane.ResourceGuard.register(ctx.resource_guard, fn ->
+          Membrane.ICE.Utils.stop_integrated_turn(udp_integrated_turn)
+        end)
 
         state =
           Map.merge(state, %{
@@ -295,22 +282,22 @@ defmodule Membrane.ICE.Endpoint do
           |> start_ice_restart_timer()
 
         actions = [
-          notify: {:udp_integrated_turn, udp_integrated_turn},
-          notify: {:handshake_init_data, @component_id, nil},
-          notify: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
+          notify_parent: {:udp_integrated_turn, udp_integrated_turn},
+          notify_parent: {:handshake_init_data, @component_id, nil},
+          notify_parent: {:local_credentials, "#{ice_ufrag} #{ice_pwd}"}
         ]
 
-        {{:ok, actions}, state}
+        {actions, state}
 
       {:error, :no_free_candidate_port} = err ->
-        {err, state}
+        raise "ICE: No free candidate port available. #{inspect(err)}"
     end
   end
 
   @impl true
   def handle_pad_added(Pad.ref(:input, @component_id), ctx, state) do
     actions = maybe_send_demands_actions(ctx, state)
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   @impl true
@@ -319,13 +306,15 @@ defmodule Membrane.ICE.Endpoint do
         ctx,
         %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    actions = maybe_send_caps(ctx) ++ [event: {pad, state.handshake.keying_material_event}]
-    {{:ok, actions}, state}
+    actions =
+      maybe_send_stream_format(ctx) ++ [event: {pad, state.handshake.keying_material_event}]
+
+    {actions, state}
   end
 
   @impl true
   def handle_pad_added(Pad.ref(:output, @component_id), ctx, state) do
-    {{:ok, maybe_send_caps(ctx)}, state}
+    {maybe_send_stream_format(ctx), state}
   end
 
   @impl true
@@ -337,7 +326,7 @@ defmodule Membrane.ICE.Endpoint do
       )
       when is_pid(alloc) do
     send_ice_payload(alloc, payload, state.telemetry_label)
-    {{:ok, demand: pad}, state}
+    {[demand: pad], state}
   end
 
   @impl true
@@ -347,11 +336,11 @@ defmodule Membrane.ICE.Endpoint do
         _ctx,
         %{dtls?: true, handshake: %{status: :finished}} = state
       ) do
-    {{:ok, event: {pad, state.handshake.keying_material_event}}, state}
+    {[event: {pad, state.handshake.keying_material_event}], state}
   end
 
   @impl true
-  def handle_event(_pad, _event, _ctx, state), do: {:ok, state}
+  def handle_event(_pad, _event, _ctx, state), do: {[], state}
 
   @impl true
   def handle_tick(:keepalive_timer, _ctx, state) do
@@ -367,21 +356,28 @@ defmodule Membrane.ICE.Endpoint do
       )
     end
 
-    {:ok, state}
+    {[], state}
+  end
+
+  # TODO Use mocking turn server instead of this
+  @impl true
+  def handle_parent_notification(:test_get_pid, _ctx, state) do
+    msg = {:test_get_pid, self()}
+    {[notify_parent: msg], state}
   end
 
   @impl true
-  def handle_other(:gather_candidates, _ctx, state) do
+  def handle_parent_notification(:gather_candidates, _ctx, state) do
     msg = {
       :new_candidate_full,
       Utils.generate_fake_ice_candidate({state.fake_candidate_ip, state.candidate_port})
     }
 
-    {{:ok, notify: msg}, state}
+    {[notify_parent: msg], state}
   end
 
   @impl true
-  def handle_other({:set_remote_credentials, credentials}, _ctx, state)
+  def handle_parent_notification({:set_remote_credentials, credentials}, _ctx, state)
       when state.pending_connection_ready? do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
 
@@ -395,12 +391,12 @@ defmodule Membrane.ICE.Endpoint do
       |> stop_ice_restart_timer()
 
     Membrane.OpenTelemetry.add_event(@life_span_id, :component_ready)
-    actions = [notify: {:connection_ready, @stream_id, @component_id}]
-    {{:ok, actions}, state}
+    actions = [notify_parent: {:connection_ready, @stream_id, @component_id}]
+    {actions, state}
   end
 
   @impl true
-  def handle_other({:set_remote_credentials, credentials}, _ctx, state) do
+  def handle_parent_notification({:set_remote_credentials, credentials}, _ctx, state) do
     [_ice_ufrag, ice_pwd] = String.split(credentials)
 
     state =
@@ -409,11 +405,11 @@ defmodule Membrane.ICE.Endpoint do
         sdp_offer_arrived?: true
       })
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
-  def handle_other(:restart_stream, _ctx, state) do
+  def handle_parent_notification(:restart_stream, _ctx, state) do
     ice_ufrag = Utils.generate_ice_ufrag()
     ice_pwd = Utils.generate_ice_pwd()
 
@@ -428,23 +424,23 @@ defmodule Membrane.ICE.Endpoint do
     Membrane.OpenTelemetry.add_event(@life_span_id, :restart_stream)
 
     credentials = "#{ice_ufrag} #{ice_pwd}"
-    {{:ok, notify: {:local_credentials, credentials}}, state}
+    {[notify_parent: {:local_credentials, credentials}], state}
   end
 
   @impl true
-  def handle_other(:peer_candidate_gathering_done, _ctx, state) do
-    {:ok, state}
+  def handle_parent_notification(:peer_candidate_gathering_done, _ctx, state) do
+    {[], state}
   end
 
   @impl true
-  def handle_other({:alloc_deleted, alloc_pid}, _ctx, state) do
+  def handle_info({:alloc_deleted, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
-  def handle_other(
+  def handle_info(
         {:connectivity_check, attrs, alloc_pid},
         ctx,
         state
@@ -472,19 +468,19 @@ defmodule Membrane.ICE.Endpoint do
       end
 
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   @impl true
-  def handle_other({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
+  def handle_info({:DOWN, _ref, _process, alloc_pid, _reason}, _ctx, state) do
     alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.end_span()
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
-  def handle_other({:ice_payload, payload}, ctx, state) do
+  def handle_info({:ice_payload, payload}, ctx, state) do
     Membrane.TelemetryMetrics.execute(
       @payload_received_event,
       %{bytes: byte_size(payload)},
@@ -515,9 +511,9 @@ defmodule Membrane.ICE.Endpoint do
 
             []
 
-          ctx.playback_state != :playing ->
+          ctx.playback != :playing ->
             Membrane.Logger.debug(
-              "Received message in playback state: #{ctx.playback_state}. Ignoring."
+              "Received message in playback state: #{ctx.playback}. Ignoring."
             )
 
             []
@@ -526,22 +522,22 @@ defmodule Membrane.ICE.Endpoint do
             [buffer: {out_pad, %Membrane.Buffer{payload: payload}}]
         end
 
-      {{:ok, actions}, state}
+      {actions, state}
     end
   end
 
   @impl true
-  def handle_other(:ice_restart_timeout, _ctx, state) do
+  def handle_info(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
     Membrane.OpenTelemetry.add_event(@life_span_id, :ice_restart_timeout)
 
     state = %{state | connection_status_sent?: true, pending_connection_ready?: false}
-    actions = [notify: {:connection_failed, @stream_id, @component_id}]
-    {{:ok, actions}, state}
+    actions = [notify_parent: {:connection_failed, @stream_id, @component_id}]
+    {actions, state}
   end
 
   @impl true
-  def handle_other(msg, _ctx, state), do: {{:ok, notify: msg}, state}
+  def handle_info(msg, _ctx, state), do: {[notify_parent: msg], state}
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
@@ -664,23 +660,23 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp handle_process_result(:handshake_want_read, _ctx, state) do
-    {:ok, state}
+    {[], state}
   end
 
   defp handle_process_result({:ok, _packets}, _ctx, state) do
     Membrane.Logger.warn("Got regular handshake packet. Ignoring for now.")
-    {:ok, state}
+    {[], state}
   end
 
   defp handle_process_result({:handshake_packets, packets}, _ctx, state) do
     if state.component_connected? do
       send_ice_payload(state.selected_alloc, packets, state.telemetry_label)
-      {:ok, state}
+      {[], state}
     else
       # if connection is not ready yet cache data
       # TODO maybe try to send?
       state = %{state | cached_hsk_packets: packets}
-      {:ok, state}
+      {[], state}
     end
   end
 
@@ -694,7 +690,7 @@ defmodule Membrane.ICE.Endpoint do
 
   defp handle_process_result({:connection_closed, reason}, _ctx, state) do
     Membrane.Logger.debug("Connection closed, reason: #{inspect(reason)}. Ignoring for now.")
-    {:ok, state}
+    {[], state}
   end
 
   defp handle_end_of_hsk(hsk_data, ctx, state) do
@@ -717,7 +713,7 @@ defmodule Membrane.ICE.Endpoint do
         maybe_send_demands_actions(ctx, state) ++
         maybe_send_keying_material_to_output(ctx, state)
 
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   defp handle_component_state_ready(ctx, state) do
@@ -746,11 +742,11 @@ defmodule Membrane.ICE.Endpoint do
       else: []
   end
 
-  defp maybe_send_caps(ctx) do
+  defp maybe_send_stream_format(ctx) do
     pad = Pad.ref(:output, @component_id)
 
-    if ctx.playback_state == :playing do
-      [caps: {pad, %RemoteStream{}}]
+    if ctx.playback == :playing do
+      [stream_format: {pad, %RemoteStream{}}]
     else
       []
     end
@@ -777,7 +773,7 @@ defmodule Membrane.ICE.Endpoint do
       |> stop_ice_restart_timer()
 
     Membrane.OpenTelemetry.add_event(@life_span_id, :component_state_ready)
-    actions = [notify: {:connection_ready, @stream_id, @component_id}]
+    actions = [notify_parent: {:connection_ready, @stream_id, @component_id}]
 
     {state, actions}
   end

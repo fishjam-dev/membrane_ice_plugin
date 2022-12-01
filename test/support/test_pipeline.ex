@@ -6,10 +6,9 @@ defmodule Membrane.ICE.Support.TestPipeline do
   require Membrane.Logger
 
   @impl true
-  def handle_init(opts) do
-    children = %{ice: struct(Membrane.ICE.Endpoint, opts)}
-    spec = %ParentSpec{children: children}
+  def handle_init(_context, opts) do
+    structure = child(:ice, struct(Membrane.ICE.Endpoint, opts))
 
-    {{:ok, spec: spec, playback: :playing}, %{}}
+    {[spec: structure, playback: :playing], %{}}
   end
 end
