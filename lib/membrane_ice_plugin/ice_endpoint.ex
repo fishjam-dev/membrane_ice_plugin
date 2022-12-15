@@ -20,8 +20,9 @@ defmodule Membrane.ICE.Endpoint do
   messages via net. To send data from multiple elements via the same component you have to
   use [membrane_funnel_plugin](https://github.com/membraneframework/membrane_funnel_plugin).
 
-  ### Messages API
-  You can send following messages to ICE Endpoint:
+  ### Notifications API
+
+  ICE Endpoint handles the following notifications:
 
   - `:gather_candidates`
 
@@ -29,7 +30,8 @@ defmodule Membrane.ICE.Endpoint do
 
   - `:peer_candidate_gathering_done`
 
-  ### Notifications API
+  ICE Endpoint sends the following notifications:
+
   - `{:new_candidate_full, candidate}`
     Triggered by: `:gather_candidates`
 
@@ -45,7 +47,7 @@ defmodule Membrane.ICE.Endpoint do
   To send or receive messages just link to ICE Endpoint using relevant pads.
   As soon as connection is established your element will receive demands and incoming messages.
 
-  ### Estabilishing a connection
+  ### Establishing a connection
 
   #### Gathering ICE candidates
   Data about integrated TURN servers set up by `Membrane.ICE.Endpoint`, passed to the parent via notification, should be
@@ -535,9 +537,6 @@ defmodule Membrane.ICE.Endpoint do
     actions = [notify_parent: {:connection_failed, @stream_id, @component_id}]
     {actions, state}
   end
-
-  @impl true
-  def handle_info(msg, _ctx, state), do: {[notify_parent: msg], state}
 
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
