@@ -43,7 +43,7 @@ defmodule Membrane.ICE.Mixfile do
       {:membrane_rtp_format, "~> 0.6.0"},
       {:membrane_funnel_plugin, "~> 0.7.0"},
       {:membrane_telemetry_metrics, "~> 0.1.0"},
-      {:bunch, "~> 1.5.0"},
+      {:bunch, "~> 1.5"},
       {:fake_turn, "~> 0.2.0"},
       {:ex_dtls, "~> 0.11.1"},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
