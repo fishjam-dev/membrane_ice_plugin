@@ -2,7 +2,7 @@ defmodule Membrane.ICE.Mixfile do
   use Mix.Project
 
   @version "0.14.0"
-  @github_url "https://github.com/membraneframework/membrane_ice_plugin"
+  @github_url "https://github.com/jellyfish-dev/membrane_ice_plugin"
 
   def project do
     [
@@ -21,7 +21,7 @@ defmodule Membrane.ICE.Mixfile do
       # docs
       name: "Membrane ICE plugin",
       source_url: @github_url,
-      homepage_url: "https://membraneframework.org",
+      homepage_url: "https://membrane.stream",
       docs: docs()
     ]
   end
@@ -71,7 +71,7 @@ defmodule Membrane.ICE.Mixfile do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @github_url,
-        "Membrane Framework Homepage" => "https://membraneframework.org"
+        "Membrane Framework Homepage" => "https://membrane.stream"
       }
     ]
   end

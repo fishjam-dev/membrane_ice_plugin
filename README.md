@@ -2,13 +2,13 @@
 
 [![Hex.pm](https://img.shields.io/hexpm/v/membrane_ice_plugin.svg)](https://hex.pm/packages/membrane_ice_plugin)
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](https://hexdocs.pm/membrane_libnice_plugin/)
-[![CircleCI](https://circleci.com/gh/membraneframework/membrane_ice_plugin.svg?style=svg)](https://circleci.com/gh/membraneframework/membrane_ice_plugin)
+[![CircleCI](https://circleci.com/gh/jellyfish-dev/membrane_ice_plugin.svg?style=svg)](https://circleci.com/gh/jellyfish-dev/membrane_ice_plugin)
 
 Membrane plugin for ICE protocol.
 
 It enables establishing connection, sending and receiving messages using ICE protocol.
 
-This package uses [fake_turn] and is part of [Membrane Multimedia Framework](https://membraneframework.org).
+This package uses [fake_turn] and is part of [Membrane Multimedia Framework](https://membrane.stream).
 
 ## Installation
 
