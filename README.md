@@ -17,7 +17,7 @@ The package can be installed by adding `membrane_ice_plugin` to your list of dep
 ```elixir
 def deps do
   [
-    {:membrane_ice_plugin, "~> 0.14.0"}
+    {:membrane_ice_plugin, "~> 0.14.1"}
   ]
 end
 ```
@@ -31,7 +31,8 @@ brew install openssl
 export PKG_CONFIG_PATH="/usr/local/opt/openssl@1.1/lib/pkgconfig"
 ```
 
-To run tests: 
+To run tests:
+
 ```
 export LDFLAGS="-L/usr/local/opt/openssl@1.1/lib"
 export CFLAGS="-I/usr/local/opt/openssl@1.1/include/"
