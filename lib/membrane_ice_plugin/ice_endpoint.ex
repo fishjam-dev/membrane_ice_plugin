@@ -88,12 +88,16 @@ defmodule Membrane.ICE.Endpoint do
   @request_received_event [Membrane.ICE, :stun, :request, :received]
   @response_sent_event [Membrane.ICE, :stun, :response, :sent]
   @indication_sent_event [Membrane.ICE, :stun, :indication, :sent]
+  @buffers_with_timestamps_sent [Membrane.ICE, :ice, :bufffer, :sent]
+  @buffers_processing_time [Membrane.ICE, :ice, :buffer, :processing_time]
   @emitted_events [
     @payload_received_event,
     @payload_sent_event,
     @request_received_event,
     @response_sent_event,
-    @indication_sent_event
+    @indication_sent_event,
+    @buffers_with_timestamps_sent,
+  @buffers_processing_time
   ]
 
   @life_span_id "ice_endpoint.life_span"
@@ -322,12 +326,12 @@ defmodule Membrane.ICE.Endpoint do
   @impl true
   def handle_write(
         Pad.ref(:input, @component_id) = pad,
-        %Membrane.Buffer{payload: payload},
+        %Membrane.Buffer{payload: payload, metadata: metadata},
         _ctx,
         %{selected_alloc: alloc} = state
       )
       when is_pid(alloc) do
-    send_ice_payload(alloc, payload, state.telemetry_label)
+    send_ice_payload(alloc, payload, state.telemetry_label, Map.get(metadata, :timestamp))
     {[demand: pad], state}
   end
 
@@ -482,7 +486,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_info({:ice_payload, payload}, ctx, state) do
+  def handle_info({:ice_payload, payload, timestamp}, ctx, state) do
     Membrane.TelemetryMetrics.execute(
       @payload_received_event,
       %{bytes: byte_size(payload)},
@@ -521,7 +525,10 @@ defmodule Membrane.ICE.Endpoint do
             []
 
           true ->
-            [buffer: {out_pad, %Membrane.Buffer{payload: payload}}]
+            [
+              buffer:
+                {out_pad, %Membrane.Buffer{payload: payload, metadata: %{timestamp: timestamp}}}
+            ]
         end
 
       {actions, state}
@@ -794,13 +801,32 @@ defmodule Membrane.ICE.Endpoint do
     }
   end
 
-  defp send_ice_payload(alloc_pid, payload, telemetry_label) do
+  defp send_ice_payload(alloc_pid, payload, telemetry_label, timestamp \\ nil) do
     Membrane.TelemetryMetrics.execute(
       @payload_sent_event,
       %{bytes: byte_size(payload)},
       %{},
       telemetry_label
     )
+
+    if timestamp do
+      Membrane.TelemetryMetrics.execute(
+        @buffers_with_timestamps_sent,
+        %{},
+        %{},
+        telemetry_label
+      )
+
+      time =
+        (:erlang.monotonic_time() - timestamp) |> System.convert_time_unit(:native, :microsecond)
+
+      Membrane.TelemetryMetrics.execute(
+        @buffers_processing_time,
+        %{time: time},
+        %{},
+        telemetry_label
+      )
+    end
 
     send(alloc_pid, {:send_ice_payload, payload})
   end
