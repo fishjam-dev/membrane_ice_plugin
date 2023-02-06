@@ -97,7 +97,7 @@ defmodule Membrane.ICE.Endpoint do
     @response_sent_event,
     @indication_sent_event,
     @buffers_with_timestamps_sent,
-  @buffers_processing_time
+    @buffers_processing_time
   ]
 
   @life_span_id "ice_endpoint.life_span"
