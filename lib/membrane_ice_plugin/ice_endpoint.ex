@@ -439,7 +439,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_info({:alloc_deleted, alloc_pid}, _ctx, state) do
+  def handle_info({:alloc_deleting, alloc_pid}, _ctx, state) do
     Membrane.Logger.debug("Deleting allocation with pid #{inspect(alloc_pid)}")
     {_alloc, state} = pop_in(state, [:turn_allocs, alloc_pid])
     {[], state}
