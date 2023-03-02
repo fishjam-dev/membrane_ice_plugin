@@ -88,8 +88,10 @@ defmodule Membrane.ICE.Endpoint do
   @request_received_event [Membrane.ICE, :stun, :request, :received]
   @response_sent_event [Membrane.ICE, :stun, :response, :sent]
   @indication_sent_event [Membrane.ICE, :stun, :indication, :sent]
+  @ice_port_assigned [Membrane.ICE, :ice, :created]
   @buffers_with_timestamps_sent [Membrane.ICE, :ice, :bufffer, :sent]
   @buffers_processing_time [Membrane.ICE, :ice, :buffer, :processing_time]
+
   @emitted_events [
     @payload_received_event,
     @payload_sent_event,
@@ -97,7 +99,8 @@ defmodule Membrane.ICE.Endpoint do
     @response_sent_event,
     @indication_sent_event,
     @buffers_with_timestamps_sent,
-    @buffers_processing_time
+    @buffers_processing_time,
+    @ice_port_assigned
   ]
 
   @life_span_id "ice_endpoint.life_span"
@@ -248,6 +251,13 @@ defmodule Membrane.ICE.Endpoint do
           })
           |> start_ice_restart_timer()
 
+        Membrane.TelemetryMetrics.execute(
+          @ice_port_assigned,
+          %{port: candidate_port, protocol: :udp},
+          %{},
+          state.telemetry_label
+        )
+
         actions = [
           stream_format: {Pad.ref(:output, @component_id), %RemoteStream{type: :packetized}},
           start_timer: {:keepalive_timer, @time_between_keepalives},
@@ -286,6 +296,13 @@ defmodule Membrane.ICE.Endpoint do
             local_ice_pwd: ice_pwd
           })
           |> start_ice_restart_timer()
+
+        Membrane.TelemetryMetrics.execute(
+          @ice_port_assigned,
+          %{port: candidate_port, protocol: :udp},
+          %{},
+          state.telemetry_label
+        )
 
         actions = [
           notify_parent: {:udp_integrated_turn, udp_integrated_turn},
