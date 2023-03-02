@@ -536,6 +536,12 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
+  def handle_info({:retransmit, _dtls_pid, packets}, ctx, state) do
+    # Treat retransmitted packets in the same way as regular handshake_packets
+    handle_process_result({:handshake_packets, packets}, ctx, state)
+  end
+
+  @impl true
   def handle_info(:ice_restart_timeout, _ctx, state) do
     Membrane.Logger.debug("ICE restart failed due to timeout")
     Membrane.OpenTelemetry.add_event(@life_span_id, :ice_restart_timeout)
