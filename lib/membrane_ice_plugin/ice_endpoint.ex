@@ -551,6 +551,12 @@ defmodule Membrane.ICE.Endpoint do
     {actions, state}
   end
 
+  @impl true
+  def handle_info(msg, _ctx, state) do
+    Membrane.Logger.error("Received unknown message: #{inspect(msg)}")
+    {[], state}
+  end
+
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
