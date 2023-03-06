@@ -91,6 +91,7 @@ defmodule Membrane.ICE.Endpoint do
   @ice_port_assigned [Membrane.ICE, :ice, :created]
   @buffers_with_timestamps_sent [Membrane.ICE, :ice, :bufffer, :sent]
   @buffers_processing_time [Membrane.ICE, :ice, :buffer, :processing_time]
+  @send_error_event [Membrane.ICE, :ice, :send_errors]
 
   @emitted_events [
     @payload_received_event,
@@ -100,7 +101,8 @@ defmodule Membrane.ICE.Endpoint do
     @indication_sent_event,
     @buffers_with_timestamps_sent,
     @buffers_processing_time,
-    @ice_port_assigned
+    @ice_port_assigned,
+    @send_error_event
   ]
 
   @life_span_id "ice_endpoint.life_span"
@@ -452,6 +454,20 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_parent_notification(:peer_candidate_gathering_done, _ctx, state) do
+    {[], state}
+  end
+
+  @impl true
+  def handle_info({:failed_to_send_pkt, error, pkt_size}, _ctx, state) do
+    Membrane.Logger.warn("ICE failed to send #{pkt_size} bytes due to socket error: #{error}")
+
+    Membrane.TelemetryMetrics.execute(
+      @send_error_event,
+      %{bytes: pkt_size},
+      %{},
+      state.telemetry_label
+    )
+
     {[], state}
   end
 
