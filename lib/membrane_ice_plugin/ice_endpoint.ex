@@ -553,7 +553,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_info(msg, _ctx, state) do
-    Membrane.Logger.error("Received unknown message: #{inspect(msg)}")
+    Membrane.Logger.warn("Received unknown message: #{inspect(msg)}")
     {[], state}
   end
 
