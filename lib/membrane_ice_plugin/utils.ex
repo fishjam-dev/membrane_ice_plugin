@@ -96,7 +96,7 @@ defmodule Membrane.ICE.Utils do
   def generate_ice_pwd(), do: random_readable_binary(22)
 
   @spec is_dtls_hsk_packet(binary()) :: boolean()
-  def is_dtls_hsk_packet(<<head, _rest::binary()>> = packet),
+  def is_dtls_hsk_packet(<<head, _rest::binary>> = packet),
     do: head in 20..63 and byte_size(packet) >= 13
 
   @spec start_integrated_turn_servers(
