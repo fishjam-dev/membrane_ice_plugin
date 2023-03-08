@@ -38,6 +38,15 @@ defmodule Membrane.ICE.Metrics do
       Telemetry.Metrics.counter(
         "ice.keepalives_sent",
         event_name: [Membrane.ICE, :stun, :keepalive, :sent]
+      ),
+      Telemetry.Metrics.counter(
+        "ice.buffers_with_timestamps_sent",
+        event_name: [Membrane.ICE, :ice, :buffer, :sent]
+      ),
+      Telemetry.Metrics.sum(
+        "ice.buffers_processing_time",
+        event_name: [Membrane.ICE, :ice, :buffer, :processing_time],
+        measurement: :time
       )
     ]
   end
