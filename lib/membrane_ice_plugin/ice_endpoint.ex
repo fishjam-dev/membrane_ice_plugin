@@ -77,6 +77,7 @@ defmodule Membrane.ICE.Endpoint do
   alias Membrane.ICE.{CandidatePortAssigner, Utils}
   alias Membrane.RemoteStream
   alias Membrane.SRTP
+  alias Membrane.TelemetryMetrics
 
   @component_id 1
   @stream_id 1
@@ -88,16 +89,14 @@ defmodule Membrane.ICE.Endpoint do
   @request_received_event [Membrane.ICE, :stun, :request, :received]
   @response_sent_event [Membrane.ICE, :stun, :response, :sent]
   @indication_sent_event [Membrane.ICE, :stun, :indication, :sent]
-  @buffers_with_timestamps_sent [Membrane.ICE, :ice, :bufffer, :sent]
-  @buffers_processing_time [Membrane.ICE, :ice, :buffer, :processing_time]
+  @buffer_processing_time [Membrane.ICE, :ice, :buffer, :processing_time]
   @emitted_events [
     @payload_received_event,
     @payload_sent_event,
     @request_received_event,
     @response_sent_event,
     @indication_sent_event,
-    @buffers_with_timestamps_sent,
-    @buffers_processing_time
+    @buffer_processing_time
   ]
 
   @life_span_id "ice_endpoint.life_span"
@@ -145,7 +144,7 @@ defmodule Membrane.ICE.Endpoint do
                 description: "Integrated TURN Options"
               ],
               telemetry_label: [
-                spec: Membrane.TelemetryMetrics.label(),
+                spec: TelemetryMetrics.label(),
                 default: [],
                 description: "Label passed to Membrane.TelemetryMetrics functions"
               ],
@@ -195,7 +194,7 @@ defmodule Membrane.ICE.Endpoint do
     Membrane.OpenTelemetry.start_span(@life_span_id, start_span_opts)
 
     for event_name <- @emitted_events do
-      Membrane.TelemetryMetrics.register(event_name, telemetry_label)
+      TelemetryMetrics.register(event_name, telemetry_label)
     end
 
     state = %{
@@ -355,7 +354,7 @@ defmodule Membrane.ICE.Endpoint do
       tr_id = Utils.generate_transaction_id()
       Utils.send_binding_indication(alloc_pid, state.remote_ice_pwd, magic, tr_id)
 
-      Membrane.TelemetryMetrics.execute(@indication_sent_event, %{}, %{}, state.telemetry_label)
+      TelemetryMetrics.execute(@indication_sent_event, %{}, %{}, state.telemetry_label)
 
       Membrane.Logger.debug(
         "Sending Binding Indication with params: #{inspect(magic: magic, transaction_id: tr_id)}"
@@ -487,7 +486,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_info({:ice_payload, payload, timestamp}, ctx, state) do
-    Membrane.TelemetryMetrics.execute(
+    TelemetryMetrics.execute(
       @payload_received_event,
       %{bytes: byte_size(payload)},
       %{},
@@ -560,7 +559,7 @@ defmodule Membrane.ICE.Endpoint do
   defp do_handle_connectivity_check(%{class: :request} = attrs, alloc_pid, ctx, state) do
     log_debug_connectivity_check(attrs)
 
-    Membrane.TelemetryMetrics.execute(@request_received_event, %{}, %{}, state.telemetry_label)
+    TelemetryMetrics.execute(@request_received_event, %{}, %{}, state.telemetry_label)
 
     alloc_span_id(alloc_pid)
     |> Membrane.OpenTelemetry.add_event(:binding_request_received,
@@ -578,7 +577,7 @@ defmodule Membrane.ICE.Endpoint do
       attrs.username
     )
 
-    Membrane.TelemetryMetrics.execute(@response_sent_event, %{}, %{}, state.telemetry_label)
+    TelemetryMetrics.execute(@response_sent_event, %{}, %{}, state.telemetry_label)
 
     [magic: attrs.magic, transaction_id: attrs.trid, username: attrs.username]
     |> then(&"Sending Binding Success with params: #{inspect(&1)}")
@@ -814,7 +813,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp send_ice_payload(alloc_pid, payload, telemetry_label, timestamp \\ nil) do
-    Membrane.TelemetryMetrics.execute(
+    TelemetryMetrics.execute(
       @payload_sent_event,
       %{bytes: byte_size(payload)},
       %{},
@@ -822,19 +821,14 @@ defmodule Membrane.ICE.Endpoint do
     )
 
     if timestamp do
-      Membrane.TelemetryMetrics.execute(
-        @buffers_with_timestamps_sent,
-        %{},
-        %{},
-        telemetry_label
-      )
+      TelemetryMetrics.execute(@buffer_processing_time, %{}, %{}, telemetry_label)
 
-      time =
+      processing_time =
         (:erlang.monotonic_time() - timestamp) |> System.convert_time_unit(:native, :microsecond)
 
-      Membrane.TelemetryMetrics.execute(
-        @buffers_processing_time,
-        %{time: time},
+      TelemetryMetrics.execute(
+        @buffer_processing_time,
+        %{microseconds: processing_time},
         %{},
         telemetry_label
       )
