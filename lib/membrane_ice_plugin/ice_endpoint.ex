@@ -88,7 +88,7 @@ defmodule Membrane.ICE.Endpoint do
   @request_received_event [Membrane.ICE, :stun, :request, :received]
   @response_sent_event [Membrane.ICE, :stun, :response, :sent]
   @indication_sent_event [Membrane.ICE, :stun, :indication, :sent]
-  @ice_port_assigned [Membrane.ICE, :ice, :created]
+  @ice_port_assigned [Membrane.ICE, :port, :assigned]
   @buffers_with_timestamps_sent [Membrane.ICE, :ice, :bufffer, :sent]
   @buffers_processing_time [Membrane.ICE, :ice, :buffer, :processing_time]
   @send_error_event [Membrane.ICE, :ice, :send_errors]
@@ -255,7 +255,7 @@ defmodule Membrane.ICE.Endpoint do
 
         Membrane.TelemetryMetrics.execute(
           @ice_port_assigned,
-          %{port: candidate_port, protocol: :udp},
+          %{port: udp_integrated_turn.server_port, protocol: udp_integrated_turn.relay_type},
           %{},
           state.telemetry_label
         )
