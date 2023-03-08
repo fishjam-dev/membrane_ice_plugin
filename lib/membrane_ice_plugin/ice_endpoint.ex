@@ -821,8 +821,6 @@ defmodule Membrane.ICE.Endpoint do
     )
 
     if timestamp do
-      TelemetryMetrics.execute(@buffer_processing_time, %{}, %{}, telemetry_label)
-
       processing_time =
         (:erlang.monotonic_time() - timestamp) |> System.convert_time_unit(:native, :microsecond)
 
