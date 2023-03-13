@@ -301,7 +301,7 @@ defmodule Membrane.ICE.Endpoint do
 
         Membrane.TelemetryMetrics.execute(
           @ice_port_assigned,
-          %{port: candidate_port, protocol: :udp},
+          %{port: udp_integrated_turn.server_port, protocol: udp_integrated_turn.relay_type},
           %{},
           state.telemetry_label
         )
