@@ -89,13 +89,18 @@ defmodule Membrane.ICE.Endpoint do
   @request_received_event [Membrane.ICE, :stun, :request, :received]
   @response_sent_event [Membrane.ICE, :stun, :response, :sent]
   @indication_sent_event [Membrane.ICE, :stun, :indication, :sent]
+  @ice_port_assigned [Membrane.ICE, :port, :assigned]
+  @send_error_event [Membrane.ICE, :ice, :send_errors]
   @buffer_processing_time [Membrane.ICE, :ice, :buffer, :processing_time]
+
   @emitted_events [
     @payload_received_event,
     @payload_sent_event,
     @request_received_event,
     @response_sent_event,
     @indication_sent_event,
+    @ice_port_assigned,
+    @send_error_event,
     @buffer_processing_time
   ]
 
@@ -247,6 +252,13 @@ defmodule Membrane.ICE.Endpoint do
           })
           |> start_ice_restart_timer()
 
+        Membrane.TelemetryMetrics.execute(
+          @ice_port_assigned,
+          %{port: udp_integrated_turn.server_port, protocol: udp_integrated_turn.relay_type},
+          %{},
+          state.telemetry_label
+        )
+
         actions = [
           stream_format: {Pad.ref(:output, @component_id), %RemoteStream{type: :packetized}},
           start_timer: {:keepalive_timer, @time_between_keepalives},
@@ -285,6 +297,13 @@ defmodule Membrane.ICE.Endpoint do
             local_ice_pwd: ice_pwd
           })
           |> start_ice_restart_timer()
+
+        Membrane.TelemetryMetrics.execute(
+          @ice_port_assigned,
+          %{port: udp_integrated_turn.server_port, protocol: udp_integrated_turn.relay_type},
+          %{},
+          state.telemetry_label
+        )
 
         actions = [
           notify_parent: {:udp_integrated_turn, udp_integrated_turn},
@@ -434,6 +453,20 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_parent_notification(:peer_candidate_gathering_done, _ctx, state) do
+    {[], state}
+  end
+
+  @impl true
+  def handle_info({:failed_to_send_pkt, error, pkt_size}, _ctx, state) do
+    Membrane.Logger.warn("ICE failed to send #{pkt_size} bytes due to socket error: #{error}")
+
+    Membrane.TelemetryMetrics.execute(
+      @send_error_event,
+      %{bytes: pkt_size},
+      %{},
+      state.telemetry_label
+    )
+
     {[], state}
   end
 

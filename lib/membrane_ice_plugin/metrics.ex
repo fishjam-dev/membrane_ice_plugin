@@ -39,6 +39,25 @@ defmodule Membrane.ICE.Metrics do
         "ice.keepalives_sent",
         event_name: [Membrane.ICE, :stun, :keepalive, :sent]
       ),
+      Telemetry.Metrics.last_value(
+        "ice.port",
+        event_name: [Membrane.ICE, :port, :assigned],
+        measurement: :port
+      ),
+      Telemetry.Metrics.last_value(
+        "ice.protocol",
+        event_name: [Membrane.ICE, :port, :assigned],
+        measurement: :protocol
+      ),
+      Telemetry.Metrics.counter(
+        "ice.socket_errors_on_send",
+        event_name: [Membrane.ICE, :ice, :send_errors]
+      ),
+      Telemetry.Metrics.sum(
+        "ice.bytes_dropped_on_send",
+        event_name: [Membrane.ICE, :ice, :send_errors],
+        measurement: :bytes
+      ),
       Telemetry.Metrics.counter(
         "ice.buffers_processed",
         event_name: [Membrane.ICE, :ice, :buffer, :processing_time]
