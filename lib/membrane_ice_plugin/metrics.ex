@@ -57,6 +57,14 @@ defmodule Membrane.ICE.Metrics do
         "ice.bytes_dropped_on_send",
         event_name: [Membrane.ICE, :ice, :send_errors],
         measurement: :bytes
+      Telemetry.Metrics.counter(
+        "ice.buffers_processed",
+        event_name: [Membrane.ICE, :ice, :buffer, :processing_time]
+      ),
+      Telemetry.Metrics.sum(
+        "ice.buffers_processed_time",
+        event_name: [Membrane.ICE, :ice, :buffer, :processing_time],
+        measurement: :microseconds
       )
     ]
   end

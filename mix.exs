@@ -1,7 +1,7 @@
 defmodule Membrane.ICE.Mixfile do
   use Mix.Project
 
-  @version "0.14.2"
+  @version "0.14.3"
   @github_url "https://github.com/jellyfish-dev/membrane_ice_plugin"
 
   def project do
