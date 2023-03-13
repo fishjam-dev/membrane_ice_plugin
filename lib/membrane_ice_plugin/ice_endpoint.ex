@@ -100,7 +100,7 @@ defmodule Membrane.ICE.Endpoint do
     @response_sent_event,
     @indication_sent_event,
     @ice_port_assigned,
-    @send_error_event
+    @send_error_event,
     @buffer_processing_time
   ]
 
