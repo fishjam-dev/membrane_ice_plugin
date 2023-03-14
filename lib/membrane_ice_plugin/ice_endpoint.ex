@@ -638,6 +638,7 @@ defmodule Membrane.ICE.Endpoint do
         :response -> "Success"
         :request -> "Request"
         :error -> "Error"
+        :indication -> "Indication"
       end
 
     Map.delete(attrs, :class)
