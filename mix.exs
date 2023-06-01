@@ -1,7 +1,7 @@
 defmodule Membrane.ICE.Mixfile do
   use Mix.Project
 
-  @version "0.15.1"
+  @version "0.16.0"
   @github_url "https://github.com/jellyfish-dev/membrane_ice_plugin"
 
   def project do
@@ -38,8 +38,8 @@ defmodule Membrane.ICE.Mixfile do
 
   defp deps do
     [
+      {:membrane_core, "~> 0.12.0", override: true},
       {:membrane_opentelemetry, "~> 0.1.0"},
-      {:membrane_core, "~> 0.11"},
       {:membrane_rtp_format, "~> 0.6.0"},
       {:membrane_funnel_plugin, "~> 0.7.0"},
       {:membrane_telemetry_metrics, "~> 0.1.0"},
