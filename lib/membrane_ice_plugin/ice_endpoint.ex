@@ -45,7 +45,6 @@ defmodule Membrane.ICE.Endpoint do
 
   ### Sending and receiving messages
   To send or receive messages just link to ICE Endpoint using relevant pads.
-  As soon as connection is established your element will receive demands and incoming messages.
 
   ### Establishing a connection
 
@@ -705,8 +704,8 @@ defmodule Membrane.ICE.Endpoint do
         {%{state | cached_hsk_packets: nil}, actions}
       end
 
-    {state, demand_actions} = handle_component_state_ready(ctx, state)
-    actions = demand_actions ++ actions
+    {state, keying_material_actions} = handle_component_state_ready(ctx, state)
+    actions = keying_material_actions ++ actions
     {state, actions}
   end
 
