@@ -168,7 +168,7 @@ defmodule Membrane.ICE.Endpoint do
     availability: :on_request,
     accepted_format: _any,
     mode: :pull,
-    demand_unit: :buffers
+    demand_mode: :auto
 
   def_output_pad :output,
     availability: :on_request,
@@ -320,7 +320,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_pad_added(Pad.ref(:input, @component_id), ctx, state) do
-    actions = maybe_send_demands_actions(ctx, state)
+    actions = maybe_send_keying_material_event(ctx, state)
     {actions, state}
   end
 
@@ -343,14 +343,14 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_write(
-        Pad.ref(:input, @component_id) = pad,
+        Pad.ref(:input, @component_id),
         %Membrane.Buffer{payload: payload, metadata: metadata},
         _ctx,
         %{selected_alloc: alloc} = state
       )
       when is_pid(alloc) do
     send_ice_payload(alloc, payload, state.telemetry_label, Map.get(metadata, :timestamp))
-    {[demand: pad], state}
+    {[], state}
   end
 
   @impl true
@@ -761,7 +761,7 @@ defmodule Membrane.ICE.Endpoint do
 
     actions =
       connection_ready_actions ++
-        maybe_send_demands_actions(ctx, state) ++
+        maybe_send_keying_material_event(ctx, state) ++
         maybe_send_keying_material_to_output(ctx, state)
 
     {actions, state}
@@ -769,17 +769,16 @@ defmodule Membrane.ICE.Endpoint do
 
   defp handle_component_state_ready(ctx, state) do
     state = %{state | component_ready?: true}
-    actions = maybe_send_demands_actions(ctx, state)
+    actions = maybe_send_keying_material_event(ctx, state)
     {state, actions}
   end
 
-  defp maybe_send_demands_actions(ctx, state) do
+  defp maybe_send_keying_material_event(ctx, state) do
     pad = Pad.ref(:input, @component_id)
-    # if something is linked, component is ready and handshake is done then send demands
-    if Map.has_key?(ctx.pads, pad) and state.component_ready? and
+
+    if state.dtls? and Map.has_key?(ctx.pads, pad) and state.component_ready? and
          state.handshake.status == :finished do
-      event = if state.dtls?, do: [event: {pad, state.handshake.keying_material_event}], else: []
-      event ++ [demand: pad]
+      [event: {pad, state.handshake.keying_material_event}]
     else
       []
     end
