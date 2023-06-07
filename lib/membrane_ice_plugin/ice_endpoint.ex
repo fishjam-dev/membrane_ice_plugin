@@ -166,7 +166,6 @@ defmodule Membrane.ICE.Endpoint do
   def_input_pad :input,
     availability: :on_request,
     accepted_format: _any,
-    mode: :pull,
     demand_mode: :auto
 
   def_output_pad :output,
