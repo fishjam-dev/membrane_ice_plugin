@@ -165,13 +165,12 @@ defmodule Membrane.ICE.Endpoint do
 
   def_input_pad :input,
     availability: :on_request,
-    accepted_format: _any,
-    demand_mode: :auto
+    accepted_format: _any
 
   def_output_pad :output,
     availability: :on_request,
     accepted_format: %RemoteStream{content_format: nil, type: :packetized},
-    mode: :push
+    flow_control: :push
 
   defmodule Allocation do
     @enforce_keys [:pid]
@@ -340,7 +339,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   @impl true
-  def handle_write(
+  def handle_buffer(
         Pad.ref(:input, @component_id),
         %Membrane.Buffer{payload: payload, metadata: metadata},
         _ctx,
@@ -456,7 +455,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_info({:failed_to_send_pkt, error, pkt_size}, _ctx, state) do
-    Membrane.Logger.warn("ICE failed to send #{pkt_size} bytes due to socket error: #{error}")
+    Membrane.Logger.warning("ICE failed to send #{pkt_size} bytes due to socket error: #{error}")
 
     Membrane.TelemetryMetrics.execute(
       @send_error_event,
@@ -541,7 +540,7 @@ defmodule Membrane.ICE.Endpoint do
       actions =
         cond do
           not Map.has_key?(ctx.pads, out_pad) ->
-            Membrane.Logger.warn(
+            Membrane.Logger.warning(
               "No links for component: #{@component_id}. Ignoring incoming message."
             )
 
@@ -583,7 +582,7 @@ defmodule Membrane.ICE.Endpoint do
 
   @impl true
   def handle_info(msg, _ctx, state) do
-    Membrane.Logger.warn("Received unknown message: #{inspect(msg)}")
+    Membrane.Logger.warning("Received unknown message: #{inspect(msg)}")
     {[], state}
   end
 
@@ -713,7 +712,7 @@ defmodule Membrane.ICE.Endpoint do
   end
 
   defp handle_process_result({:ok, _packets}, _ctx, state) do
-    Membrane.Logger.warn("Got regular handshake packet. Ignoring for now.")
+    Membrane.Logger.warning("Got regular handshake packet. Ignoring for now.")
     {[], state}
   end
 
