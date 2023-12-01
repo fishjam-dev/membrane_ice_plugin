@@ -21,7 +21,7 @@ defmodule Membrane.ICE.Utils do
 
   @spec generate_secret() :: binary()
   def generate_secret() do
-    symbols = '0123456789abcdef'
+    symbols = ~c"0123456789abcdef"
 
     1..20
     |> Enum.map(fn _i -> Enum.random(symbols) end)

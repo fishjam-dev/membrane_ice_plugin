@@ -110,6 +110,6 @@ defmodule Membrane.ICE.IntegrationTest do
 
     assert_pipeline_notified(pipeline, :ice, {:connection_ready, @stream_id, @component_id})
 
-    Testing.Pipeline.terminate(pipeline, blocking?: true)
+    Testing.Pipeline.terminate(pipeline)
   end
 end
