@@ -38,7 +38,6 @@ defmodule Membrane.ICE.Mixfile do
 
   defp deps do
     [
-      {:membrane_opentelemetry, "~> 0.1.0"},
       {:membrane_core, "~> 1.0"},
       {:membrane_rtp_format, "~> 0.8.0"},
       {:membrane_funnel_plugin, "~> 0.9.0"},
