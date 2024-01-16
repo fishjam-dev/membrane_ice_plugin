@@ -464,18 +464,11 @@ defmodule Membrane.ICE.Endpoint do
           "First connectivity check arrived from allocation with pid #{inspect(alloc_pid)}"
         )
 
-        Process.monitor(alloc_pid)
-
         put_in(state, [:turn_allocs, alloc_pid], %Allocation{pid: alloc_pid})
       end
 
     {state, actions} = do_handle_connectivity_check(Map.new(attrs), alloc_pid, ctx, state)
     {actions, state}
-  end
-
-  @impl true
-  def handle_info({:DOWN, _ref, _process, _alloc_pid, _reason}, _ctx, state) do
-    {[], state}
   end
 
   @impl true
