@@ -141,6 +141,15 @@ defmodule Membrane.ICE.Utils do
 
         {:ok, port, pid} = start_integrated_turn(secret, opts)
 
+        Membrane.Logger.info("""
+        Starting #{inspect(transport)} TURN server.
+        IP: #{inspect(ip)}
+        MOCK IP: #{inspect(mock_ip)}
+        SECRET: #{inspect(secret)}
+        PID: #{inspect(self())}
+        PORT: #{inspect(port)}\
+        """)
+
         %{
           relay_type: transport,
           secret: secret,
